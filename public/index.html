@@ -1,77 +1,64 @@
-<!doctype html>
+
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Construction Site Attendance</title>
-<link rel="stylesheet" href="/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Construction Site Attendance</title>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header>
-  <div>
+  <header>
     <h1>Construction Site Attendance</h1>
-    <p>Worker check-in, check-out & engineer dashboard</p>
-  </div>
-</header>
+    <p>Worker check-in, check-out and engineer dashboard</p>
+  </header>
 
-<nav>
-  <button onclick="show('worker')">Worker</button>
-  <button onclick="show('dashboard')">Engineer Dashboard</button>
-  <button onclick="show('register')">Register Worker</button>
-</nav>
+  <main class="login-container">
+    <div class="card">
+      <div class="tabs">
+        <button id="adminTab" class="active"
+          onclick="choose('admin')">Engineer Login</button>
+        <button id="workerTab"
+          onclick="choose('worker')">Worker Login</button>
+      </div>
 
-<main>
-<section id="worker" class="page">
-  <div class="card">
-    <h2>Worker Attendance</h2>
-    <label>Worker ID</label>
-    <input id="wid" placeholder="e.g. WRK-0001">
-    <label>PIN</label>
-    <input id="wpin" type="password" placeholder="Enter PIN">
-    <div class="buttons">
-      <button class="primary" onclick="attendance('checkin')">CHECK IN</button>
-      <button class="danger" onclick="attendance('checkout')">CHECK OUT</button>
+      <section id="adminLogin">
+        <h2>Engineer Login</h2>
+
+        <label for="adminUser">Username</label>
+        <input id="adminUser" autocomplete="username"
+          placeholder="Enter admin username">
+
+        <label for="adminPass">Password</label>
+        <input id="adminPass" type="password"
+          autocomplete="current-password"
+          placeholder="Enter admin password">
+
+        <button class="primary full" onclick="adminLogin()">
+          Sign in
+        </button>
+      </section>
+
+      <section id="workerLogin" class="hidden">
+        <h2>Worker Login</h2>
+
+        <label for="workerId">Worker ID</label>
+        <input id="workerId" maxlength="8" inputmode="numeric"
+          placeholder="Enter your 8-digit Worker ID">
+
+        <label for="workerPin">PIN</label>
+        <input id="workerPin" type="password" maxlength="6"
+          inputmode="numeric" placeholder="Enter your PIN">
+
+        <button class="primary full" onclick="workerLogin()">
+          Continue to Attendance
+        </button>
+      </section>
+
+      <p id="message"></p>
     </div>
-    <div id="workerMsg"></div>
-  </div>
-</section>
+  </main>
 
-<section id="dashboard" class="page hidden">
-  <h2>Engineer Dashboard</h2>
-  <div class="stats">
-    <div class="stat"><b id="total">0</b><span>Registered</span></div>
-    <div class="stat"><b id="records">0</b><span>Attended Today</span></div>
-    <div class="stat"><b id="onsite">0</b><span>On Site</span></div>
-    <div class="stat"><b id="absent">0</b><span>Absent</span></div>
-  </div>
-  <div class="card">
-    <div class="toolbar">
-      <input id="date" type="date">
-      <button class="primary" onclick="loadDashboard()">Refresh</button>
-      <button onclick="downloadCSV()">Export CSV</button>
-    </div>
-    <div class="tableWrap">
-      <table>
-        <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Role</th><th>Check In</th><th>Check Out</th><th>Status</th></tr></thead>
-        <tbody id="attendanceTable"></tbody>
-      </table>
-    </div>
-  </div>
-</section>
-
-<section id="register" class="page hidden">
-  <div class="card">
-    <h2>Register New Worker</h2>
-    <label>Full name</label><input id="rname" placeholder="Worker full name">
-    <label>Phone number</label><input id="rphone" placeholder="07XXXXXXXX">
-    <label>Role</label><input id="rrole" placeholder="Mason, electrician, plumber...">
-    <label>PIN</label><input id="rpin" type="password" placeholder="4-6 digit PIN">
-    <button class="primary full" onclick="registerWorker()">REGISTER WORKER</button>
-    <div id="registerMsg"></div>
-  </div>
-</section>
-</main>
-
-<script src="/app.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>
