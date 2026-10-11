@@ -1,9 +1,77 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Construction Site Attendance</title><link rel="stylesheet" href="/style.css"></head>
-<body><header><div><h1>Construction Site Attendance</h1><p>Worker registration, check-in, check-out and site-based attendance</p></div></header>
-<nav><button onclick="show('worker')">Worker</button><button onclick="show('register')">Register Worker</button><button onclick="show('admin')">Admin Dashboard</button></nav>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Construction Site Attendance</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>Construction Site Attendance</h1>
+    <p>Worker check-in, check-out & engineer dashboard</p>
+  </div>
+</header>
+
+<nav>
+  <button onclick="show('worker')">Worker</button>
+  <button onclick="show('dashboard')">Engineer Dashboard</button>
+  <button onclick="show('register')">Register Worker</button>
+</nav>
+
 <main>
-<section id="worker" class="page"><div class="card"><h2>Worker Attendance</h2><p class="hint">Enter your Worker ID and PIN to check in or check out.</p><label for="attendanceId">Worker ID (8 digits)</label><input id="attendanceId" inputmode="numeric" maxlength="8" placeholder="Enter worker ID"><label for="attendancePin">PIN</label><input id="attendancePin" inputmode="numeric" type="password" maxlength="6" placeholder="Enter PIN"><div class="buttons"><button class="primary" onclick="markAttendance('checkin')">Check In</button><button class="danger" onclick="markAttendance('checkout')">Check Out</button></div><div id="workerMsg" class="msg hidden"></div><div id="myRecord"></div></div></section>
-<section id="register" class="page hidden"><div class="card"><h2>Worker Registration</h2><p class="hint">Select the construction site where the worker is assigned.</p><form id="registerForm"><div class="two"><div><label for="firstName">First name</label><input id="firstName" name="first_name" required placeholder="First name"></div><div><label for="lastName">Last name</label><input id="lastName" name="last_name" required placeholder="Last name"></div></div><label for="workerId">Worker ID (exactly 8 digits)</label><input id="workerId" name="worker_id" inputmode="numeric" maxlength="8" pattern="[0-9]{8}" required placeholder="e.g. 12345678"><label for="phone">Phone number</label><input id="phone" name="phone" inputmode="tel" maxlength="10" pattern="(01|07)[0-9]{8}" required placeholder="e.g. 0712345678"><label for="pin">Create PIN (4–6 digits)</label><input id="pin" name="pin" type="password" inputmode="numeric" minlength="4" maxlength="6" pattern="[0-9]{4,6}" required placeholder="Create PIN"><label for="site">Construction site</label><input id="site" name="site" list="siteOptions" required placeholder="Choose or type site name"><datalist id="siteOptions"><option value="Kianda"><option value="Kiambu"><option value="Embu"><option value="Samburu"><option value="Homa Bay"></datalist><p class="hint">Use consistent spelling for site names so the Admin Dashboard groups workers correctly.</p><button class="primary" type="submit">Register Worker</button></form><div id="registerMsg" class="msg hidden"></div></div></section>
-<section id="admin" class="page hidden"><div class="card"><div class="dashboardHead"><div><h2>Admin Dashboard</h2><p class="hint">Filter attendance by construction site and date.</p></div><button onclick="loadDashboard()">Refresh</button></div><div class="toolbar"><div><label for="siteFilter">Construction site</label><select id="siteFilter" onchange="loadDashboard()"><option>All Sites</option></select></div><div><label for="dateFilter">Attendance date</label><input type="date" id="dateFilter" onchange="loadDashboard()"></div></div><div class="stats"><div class="stat"><b id="total">0</b><span>Registered workers</span></div><div class="stat"><b id="records">0</b><span>Checked in</span></div><div class="stat"><b id="onsite">0</b><span>Currently on site</span></div><div class="stat"><b id="absent">0</b><span>Not checked in</span></div></div><div class="tableWrap"><table><thead><tr><th>Name</th><th>Worker ID</th><th>Phone</th><th>Site</th><th>Check In</th><th>Check Out</th><th>Status</th></tr></thead><tbody id="attendanceTable"><tr><td colspan="7">Choose Refresh to load records.</td></tr></tbody></table></div><p id="adminMsg" class="hint"></p></div><div class="card"><h3>Registered Workers</h3><div class="tableWrap"><table><thead><tr><th>Name</th><th>Worker ID</th><th>Phone</th><th>Site</th></tr></thead><tbody id="workersTable"></tbody></table></div></div></section>
-</main><script src="/app.js"></script></body></html>
+<section id="worker" class="page">
+  <div class="card">
+    <h2>Worker Attendance</h2>
+    <label>Worker ID</label>
+    <input id="wid" placeholder="e.g. WRK-0001">
+    <label>PIN</label>
+    <input id="wpin" type="password" placeholder="Enter PIN">
+    <div class="buttons">
+      <button class="primary" onclick="attendance('checkin')">CHECK IN</button>
+      <button class="danger" onclick="attendance('checkout')">CHECK OUT</button>
+    </div>
+    <div id="workerMsg"></div>
+  </div>
+</section>
+
+<section id="dashboard" class="page hidden">
+  <h2>Engineer Dashboard</h2>
+  <div class="stats">
+    <div class="stat"><b id="total">0</b><span>Registered</span></div>
+    <div class="stat"><b id="records">0</b><span>Attended Today</span></div>
+    <div class="stat"><b id="onsite">0</b><span>On Site</span></div>
+    <div class="stat"><b id="absent">0</b><span>Absent</span></div>
+  </div>
+  <div class="card">
+    <div class="toolbar">
+      <input id="date" type="date">
+      <button class="primary" onclick="loadDashboard()">Refresh</button>
+      <button onclick="downloadCSV()">Export CSV</button>
+    </div>
+    <div class="tableWrap">
+      <table>
+        <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Role</th><th>Check In</th><th>Check Out</th><th>Status</th></tr></thead>
+        <tbody id="attendanceTable"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="register" class="page hidden">
+  <div class="card">
+    <h2>Register New Worker</h2>
+    <label>Full name</label><input id="rname" placeholder="Worker full name">
+    <label>Phone number</label><input id="rphone" placeholder="07XXXXXXXX">
+    <label>Role</label><input id="rrole" placeholder="Mason, electrician, plumber...">
+    <label>PIN</label><input id="rpin" type="password" placeholder="4-6 digit PIN">
+    <button class="primary full" onclick="registerWorker()">REGISTER WORKER</button>
+    <div id="registerMsg"></div>
+  </div>
+</section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

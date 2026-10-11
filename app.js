@@ -1,10 +1,38 @@
-function show(page){document.querySelectorAll('.page').forEach(s=>s.classList.add('hidden'));const el=document.getElementById(page);if(el)el.classList.remove('hidden');if(page==='admin')loadDashboard();if(page==='register')loadSites();}
-function msg(id,text,type='error'){const el=document.getElementById(id);el.textContent=text;el.className='msg '+type;el.classList.remove('hidden');}
-async function api(url,options={}){const r=await fetch(url,options);const d=await r.json().catch(()=>({message:'Server returned an invalid response.'}));if(!r.ok)throw new Error(d.message||'Request failed');return d;}
-function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-async function loadSites(){try{const sites=await api('/api/sites');const dl=document.getElementById('siteOptions');dl.innerHTML=['Kianda','Kiambu','Embu','Samburu','Homa Bay',...sites].filter((v,i,a)=>a.indexOf(v)===i).map(s=>`<option value="${esc(s)}"></option>`).join('');const select=document.getElementById('siteFilter');const current=select.value||'All Sites';select.innerHTML='<option value="All Sites">All Sites</option>'+sites.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');if([...select.options].some(o=>o.value===current))select.value=current;}catch(e){console.error(e);}}
-document.getElementById('registerForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;const data=Object.fromEntries(new FormData(form).entries());try{const r=await api('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});msg('registerMsg',`${r.message} ${r.worker.name} — ${r.worker.site}`,'success');form.reset();await loadSites();}catch(err){msg('registerMsg',err.message);}});
-async function markAttendance(action){const worker_id=document.getElementById('attendanceId').value.trim();const pin=document.getElementById('attendancePin').value.trim();try{const r=await api('/api/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({worker_id,pin})});msg('workerMsg',`${r.message} ${r.attendance.name} | Site: ${r.attendance.site} | Time: ${action==='checkin'?r.attendance.check_in:r.attendance.check_out}`,'success');document.getElementById('myRecord').innerHTML=`<p><b>${esc(r.attendance.name)}</b><br>Site: ${esc(r.attendance.site)}<br>Check in: ${esc(r.attendance.check_in||'—')}<br>Check out: ${esc(r.attendance.check_out||'—')}</p>`;}catch(err){msg('workerMsg',err.message);}}
-function todayLocal(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
-async function loadDashboard(){const date=document.getElementById('dateFilter');if(!date.value)date.value=todayLocal();await loadSites();const site=document.getElementById('siteFilter').value||'All Sites';const day=date.value;try{const q=`date=${encodeURIComponent(day)}&site=${encodeURIComponent(site)}`;const [rows,stats,workers]=await Promise.all([api('/api/attendance?'+q),api('/api/stats?'+q),api('/api/workers')]);document.getElementById('total').textContent=stats.total;document.getElementById('records').textContent=stats.records;document.getElementById('onsite').textContent=stats.onsite;document.getElementById('absent').textContent=stats.absent;const body=document.getElementById('attendanceTable');body.innerHTML=rows.length?rows.map(a=>`<tr><td>${esc(a.name)}</td><td>${esc(a.worker_id)}</td><td>${esc(a.phone)}</td><td>${esc(a.site||'Unassigned')}</td><td>${esc(a.check_in||'—')}</td><td>${esc(a.check_out||'—')}</td><td><span class="${a.check_out?'off':'on'}">${a.check_out?'CHECKED OUT':'ON SITE'}</span></td></tr>`).join(''):'<tr><td colspan="7">No workers have checked in at this site on this date.</td></tr>';const selected=workers.filter(w=>site==='All Sites'||(w.site||'Unassigned')===site);document.getElementById('workersTable').innerHTML=selected.length?selected.map(w=>`<tr><td>${esc(w.name)}</td><td>${esc(w.worker_id)}</td><td>${esc(w.phone)}</td><td>${esc(w.site||'Unassigned')}</td></tr>`).join(''):'<tr><td colspan="4">No registered workers for this site.</td></tr>';document.getElementById('adminMsg').textContent=`Showing ${site} for ${day}. Attendance list includes workers who checked in, including those who have checked out.`;}catch(e){document.getElementById('adminMsg').textContent='Could not load dashboard: '+e.message;}}
-document.addEventListener('DOMContentLoaded',()=>{document.getElementById('dateFilter').value=todayLocal();loadSites();});
+const $=id=>document.getElementById(id);
+function show(id){
+ document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));
+ $(id).classList.remove("hidden");
+ if(id==="dashboard"){ $("date").value=new Date().toLocaleDateString("en-CA"); loadDashboard(); }
+}
+async function attendance(action){
+ const worker_id=$("wid").value.trim(), pin=$("wpin").value.trim();
+ if(!worker_id||!pin){return msg("workerMsg","Enter Worker ID and PIN.","error")}
+ const r=await fetch("/api/"+action,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({worker_id,pin})});
+ const d=await r.json();
+ if(!r.ok)return msg("workerMsg",d.error,"error");
+ msg("workerMsg",`<b>Welcome, ${d.worker.name}</b><br>Worker ID: ${d.worker.worker_id}<br>Time: ${action==="checkin"?d.attendance.check_in:d.attendance.check_out}<br>Status: ${action==="checkin"?"ON SITE":"OFF SITE"}`,"success");
+}
+function msg(id,text,type){$(id).innerHTML=`<div class="msg">${text}</div>`}
+async function registerWorker(){
+ const body={name:$("rname").value,phone:$("rphone").value,role:$("rrole").value,pin:$("rpin").value};
+ const r=await fetch("/api/workers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+ const d=await r.json();
+ if(!r.ok)return msg("registerMsg",d.error,"error");
+ msg("registerMsg",`Worker registered successfully.<br><b>Worker ID: ${d.worker_id}</b><br>Give this ID and the PIN to the worker.`,"success");
+ ["rname","rphone","rrole","rpin"].forEach(x=>$(x).value="");
+}
+async function loadDashboard(){
+ const date=$("date").value;
+ const [a,s]=await Promise.all([fetch("/api/attendance?date="+date).then(r=>r.json()),fetch("/api/stats").then(r=>r.json())]);
+ $("total").textContent=s.total;$("records").textContent=s.records;$("onsite").textContent=s.onsite;$("absent").textContent=s.absent;
+ $("attendanceTable").innerHTML=a.map(x=>`<tr><td>${x.worker_id}</td><td>${x.name}</td><td>${x.phone}</td><td>${x.role}</td><td>${x.check_in}</td><td>${x.check_out||"—"}</td><td class="${x.check_out?"off":"on"}">${x.status}</td></tr>`).join("")||`<tr><td colspan="7">No attendance records for this date.</td></tr>`;
+ window.currentRows=a;
+}
+function downloadCSV(){
+ const rows=window.currentRows||[];
+ let csv="Worker ID,Name,Phone,Role,Date,Check In,Check Out,Status\n";
+ rows.forEach(x=>csv+=`"${x.worker_id}","${x.name}","${x.phone}","${x.role}","${x.work_date}","${x.check_in}","${x.check_out||""}","${x.status}"\n`);
+ const blob=new Blob([csv],{type:"text/csv"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+ a.href=url;a.download="attendance.csv";a.click();URL.revokeObjectURL(url);
+}
+show("worker");
