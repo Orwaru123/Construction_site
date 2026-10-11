@@ -1,0 +1,1 @@
+{"name":"construction-site-attendance","version":"1.1.0","description":"Construction site attendance with site filtering and admin dashboard","main":"server.js","scripts":{"start":"node server.js"},"dependencies":{"express":"^4.21.2"}}
