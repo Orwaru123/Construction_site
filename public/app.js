@@ -1,7 +1,6 @@
-
 "use strict";
 
-// Construction Site Attendance - multi-page JavaScript
+// Construction Site Attendance System
 const $ = (id) => document.getElementById(id);
 
 const messageBox = $("message");
@@ -12,7 +11,9 @@ async function api(url, options = {}) {
     ...options,
     credentials: "same-origin",
     headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.body
+        ? { "Content-Type": "application/json" }
+        : {}),
       ...options.headers
     }
   });
@@ -41,6 +42,7 @@ function showMessage(message, isError = false) {
 
 function clearMessage() {
   if (!messageBox) return;
+
   messageBox.hidden = true;
   messageBox.textContent = "";
 }
@@ -64,6 +66,7 @@ function today() {
   }).formatToParts(new Date());
 
   const values = {};
+
   for (const part of parts) {
     values[part.type] = part.value;
   }
@@ -86,7 +89,7 @@ function goTo(url) {
   window.location.href = url;
 }
 
-// Check admin authentication on every protected page.
+// Check whether the administrator is signed in.
 async function requireAdmin() {
   try {
     await api("/api/me");
@@ -97,11 +100,10 @@ async function requireAdmin() {
   }
 }
 
-// ADMIN LOGIN PAGE
+// ADMIN LOGIN
 const loginForm = $("loginForm");
 
 if (loginForm) {
-  // If already signed in, go straight to the dashboard.
   api("/api/me")
     .then(() => goTo("/dashboard.html"))
     .catch(() => {});
@@ -135,42 +137,48 @@ if (loginForm) {
   });
 }
 
-// LOG OUT BUTTON - can appear on any protected page.
+// ADMIN LOGOUT
 const logoutButton = $("logoutButton");
 
 if (logoutButton) {
   logoutButton.addEventListener("click", async () => {
+    clearMessage();
+    logoutButton.disabled = true;
+
     try {
       await api("/api/logout", { method: "POST" });
+      goTo("/");
     } catch (error) {
       showMessage(error.message, true);
-      return;
+      logoutButton.disabled = false;
     }
-
-    goTo("/");
   });
 }
 
-// WORKER REGISTRATION PAGE
+// WORKER REGISTRATION
 const workerForm = $("workerForm");
 const workersList = $("workersList");
 
 async function loadWorkers() {
-  const data = await api("/api/workers");
-
   if (!workersList) return;
 
-  workersList.innerHTML = data.workers.length
-    ? data.workers.map((worker) => `
-        <tr>
-          <td>${escapeHTML(worker.name)}</td>
-          <td>${escapeHTML(worker.workerId)}</td>
-          <td>${escapeHTML(worker.phone)}</td>
-          <td>${escapeHTML(worker.role)}</td>
-          <td>${escapeHTML(worker.site)}</td>
-        </tr>
-      `).join("")
-    : '<tr><td colspan="5">No workers registered yet.</td></tr>';
+  try {
+    const data = await api("/api/workers");
+
+    workersList.innerHTML = data.workers.length
+      ? data.workers.map((worker) => `
+          <tr>
+            <td>${escapeHTML(worker.name)}</td>
+            <td>${escapeHTML(worker.workerId)}</td>
+            <td>${escapeHTML(worker.phone)}</td>
+            <td>${escapeHTML(worker.role)}</td>
+            <td>${escapeHTML(worker.site)}</td>
+          </tr>
+        `).join("")
+      : '<tr><td colspan="5">No workers registered yet.</td></tr>';
+  } catch (error) {
+    showMessage(error.message, true);
+  }
 }
 
 if (workerForm) {
@@ -187,22 +195,28 @@ if (workerForm) {
       site: $("workerSite").value.trim()
     };
 
+    const button = workerForm.querySelector('button[type="submit"]');
+
     try {
-      await api("/api/workers", {
+      if (button) button.disabled = true;
+
+      const result = await api("/api/workers", {
         method: "POST",
         body: JSON.stringify(worker)
       });
 
       workerForm.reset();
-      showMessage("Worker registered successfully.");
+      showMessage(result.message || "Worker registered successfully.");
       await loadWorkers();
     } catch (error) {
       showMessage(error.message, true);
+    } finally {
+      if (button) button.disabled = false;
     }
   });
 }
 
-// WORKER ATTENDANCE PAGE
+// WORKER ATTENDANCE
 const attendanceForm = $("attendanceForm");
 
 if (attendanceForm) {
@@ -211,8 +225,11 @@ if (attendanceForm) {
     clearMessage();
 
     const action = $("attendanceAction").value;
+    const button = attendanceForm.querySelector('button[type="submit"]');
 
     try {
+      if (button) button.disabled = true;
+
       const result = await api(`/api/attendance/${action}`, {
         method: "POST",
         body: JSON.stringify({
@@ -223,22 +240,29 @@ if (attendanceForm) {
 
       $("attendancePin").value = "";
       showMessage(result.message || "Attendance recorded successfully.");
-
-      const refreshButton = $("refreshAttendanceButton");
-      if (refreshButton) refreshButton.click();
     } catch (error) {
       showMessage(error.message, true);
+    } finally {
+      if (button) button.disabled = false;
     }
   });
 }
 
-// ATTENDANCE RECORDS PAGE
+// ATTENDANCE RECORDS
 const attendanceList = $("attendanceList");
 const siteFilter = $("siteFilter");
 const dateFilter = $("dateFilter");
+const filterButton = $("filterButton");
+const exportButton = $("exportButton");
+
+if (dateFilter && !dateFilter.value) {
+  dateFilter.value = today();
+}
 
 async function loadAttendance() {
   if (!attendanceList) return;
+
+  clearMessage();
 
   const params = new URLSearchParams();
 
@@ -250,6 +274,9 @@ async function loadAttendance() {
     params.set("site", siteFilter.value.trim());
   }
 
+  attendanceList.innerHTML =
+    '<tr><td colspan="6">Loading attendance records...</td></tr>';
+
   try {
     const data = await api(`/api/attendance?${params.toString()}`);
 
@@ -258,23 +285,20 @@ async function loadAttendance() {
           <tr>
             <td>${escapeHTML(record.name)}</td>
             <td>${escapeHTML(record.workerId)}</td>
+            <td>${escapeHTML(record.role)}</td>
             <td>${escapeHTML(record.site)}</td>
-            <td>${escapeHTML(record.date)}</td>
             <td>${escapeHTML(displayTime(record.checkIn))}</td>
             <td>${escapeHTML(displayTime(record.checkOut))}</td>
           </tr>
         `).join("")
       : '<tr><td colspan="6">No attendance records for this date and site.</td></tr>';
   } catch (error) {
+    attendanceList.innerHTML =
+      '<tr><td colspan="6">Unable to load attendance records.</td></tr>';
+
     showMessage(error.message, true);
   }
 }
-
-if (dateFilter && !dateFilter.value) {
-  dateFilter.value = today();
-}
-
-const filterButton = $("filterButton");
 
 if (filterButton) {
   filterButton.addEventListener("click", loadAttendance);
@@ -293,10 +317,11 @@ if (siteFilter) {
   });
 }
 
-const exportButton = $("exportButton");
-
+// Export records using the selected date and site.
 if (exportButton) {
   exportButton.addEventListener("click", async () => {
+    clearMessage();
+
     const params = new URLSearchParams();
 
     if (dateFilter && dateFilter.value) {
@@ -323,20 +348,22 @@ if (exportButton) {
       const link = document.createElement("a");
 
       link.href = url;
-      link.download = `attendance-${dateFilter?.value || today()}.csv`;
+      link.download =
+        `attendance-${dateFilter?.value || today()}.csv`;
+
       document.body.appendChild(link);
       link.click();
       link.remove();
 
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
       showMessage(error.message, true);
     }
   });
 }
 
-// Protect all non-login pages and initialize only their own features.
-if (page !== "index.html" && page !== "") {
+// Protect and initialize each non-login page.
+if (page !== "index.html") {
   requireAdmin().then((authenticated) => {
     if (!authenticated) return;
 
