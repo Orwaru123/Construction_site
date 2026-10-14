@@ -1,0 +1,49 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Dashboard | Construction Attendance</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <h1>Construction Site Attendance</h1>
+    <p>Admin Dashboard</p>
+  </header>
+
+  <main class="container">
+    <div class="dashboard-heading">
+      <h2>Welcome, Administrator</h2>
+      <button id="logoutButton" type="button">Log Out</button>
+    </div>
+
+    <div id="message" class="message" hidden role="status"></div>
+
+    <section class="dashboard-grid">
+      <a class="dashboard-card" href="/workers.html">
+        <span class="card-icon">👷</span>
+        <h3>Register Workers</h3>
+        <p>Register new workers and view their details.</p>
+        <span class="card-link">Open Workers →</span>
+      </a>
+
+      <a class="dashboard-card" href="/attendance.html">
+        <span class="card-icon">🕒</span>
+        <h3>Worker Attendance</h3>
+        <p>Record worker check-in and check-out.</p>
+        <span class="card-link">Open Attendance →</span>
+      </a>
+
+      <a class="dashboard-card" href="/records.html">
+        <span class="card-icon">📋</span>
+        <h3>Attendance Records</h3>
+        <p>Review attendance by date and construction site.</p>
+        <span class="card-link">View Records →</span>
+      </a>
+    </section>
+  </main>
+</body>
+</html>
