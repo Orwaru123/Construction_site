@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Attendance Records | Construction Attendance</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <h1>Construction Site Attendance</h1>
+    <p>Attendance Records</p>
+  </header>
+
+  <main class="container">
+    <nav class="page-nav">
+      <a href="/dashboard.html">Dashboard</a>
+      <a href="/workers.html">Register Workers</a>
+      <a href="/attendance.html">Worker Attendance</a>
+      <a href="/records.html" aria-current="page">Attendance Records</a>
+    </nav>
+
+    <div class="dashboard-heading">
+      <h2>Attendance Records</h2>
+      <button id="logoutButton" type="button">Log Out</button>
+    </div>
+
+    <div id="message" class="message" hidden role="status"></div>
+
+    <section class="panel">
+      <h3>Filter Records</h3>
+
+      <div class="filters">
+        <div>
+          <label for="dateFilter">Attendance Date</label>
+          <input id="dateFilter" type="date">
+        </div>
+
+        <div>
+          <label for="siteFilter">Construction Site</label>
+          <input id="siteFilter" type="text"
+                 placeholder="e.g. Kianda, Embu, Kiambu">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="filterButton" type="button">View Records</button>
+        <button id="exportButton" type="button">Export CSV</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Worker Attendance</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Worker Name</th>
+              <th>Worker ID</th>
+              <th>Role</th>
+              <th>Construction Site</th>
+              <th>Check-In</th>
+              <th>Check-Out</th>
+            </tr>
+          </thead>
+          <tbody id="attendanceList">
+            <tr>
+              <td colspan="6">Loading attendance records...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <p><a href="/dashboard.html">← Back to Admin Dashboard</a></p>
+  </main>
+</body>
+</html>
