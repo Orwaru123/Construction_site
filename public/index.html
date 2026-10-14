@@ -1,58 +1,167 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Admin Login - Construction Site Attendance</title>
+  <title>Construction Site Attendance</title>
   <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
 </head>
 <body>
-  <header>
+  <header class="header">
     <h1>Construction Site Attendance</h1>
-    <p>Administrator access only</p>
+    <p>Worker registration, check-in and check-out</p>
   </header>
 
-  <main class="login-container">
-    <div class="card">
-      <section id="adminLogin">
-        <h2>Admin Login</h2>
-        <p>Sign in to manage workers and attendance.</p>
+  <main class="container">
+    <div id="message" class="message" hidden role="status"></div>
 
-        <form id="adminLoginForm">
-          <label for="adminUser">Username</label>
-          <input
-            id="adminUser"
-            name="username"
-            type="text"
-            autocomplete="username"
-            placeholder="Enter admin username"
-            required
-          >
+    <section id="loginSection" class="panel">
+      <h2>Admin Login</h2>
+      <p>Sign in to manage workers and attendance records.</p>
 
-          <label for="adminPass">Password</label>
-          <input
-            id="adminPass"
-            name="password"
-            type="password"
-            autocomplete="current-password"
-            placeholder="Enter admin password"
-            required
-          >
+      <form id="loginForm">
+        <label for="username">Admin Username</label>
+        <input id="username" name="username"
+               autocomplete="username" required>
 
-          <button id="signInButton" class="primary full" type="submit">
-            Sign In
-          </button>
+        <label for="password">Admin Password</label>
+        <input id="password" name="password" type="password"
+               autocomplete="current-password" required>
+
+        <button type="submit">Sign In</button>
+      </form>
+    </section>
+
+    <section id="appSection" hidden>
+      <div class="dashboard-heading">
+        <h2>Admin Dashboard</h2>
+        <button id="logoutButton" class="secondary" type="button">
+          Log Out
+        </button>
+      </div>
+
+      <section class="panel">
+        <h3>1. Register Worker</h3>
+
+        <form id="workerForm">
+          <label for="workerName">Worker Full Name</label>
+          <input id="workerName" placeholder="Enter full name" required>
+
+          <label for="workerId">Worker ID (8 digits)</label>
+          <input id="workerId" inputmode="numeric"
+                 pattern="[0-9]{8}" maxlength="8"
+                 placeholder="e.g. 12345678" required>
+
+          <label for="workerPhone">Phone Number</label>
+          <input id="workerPhone" type="tel"
+                 placeholder="Enter phone number" required>
+
+          <label for="workerPin">Worker PIN</label>
+          <input id="workerPin" type="password"
+                 inputmode="numeric" pattern="[0-9]{4,8}"
+                 minlength="4" maxlength="8"
+                 placeholder="4–8 digit PIN" required>
+
+          <label for="workerRole">Worker Role</label>
+          <input id="workerRole"
+                 placeholder="e.g. Mason, Engineer, General Worker"
+                 required>
+
+          <label for="workerSite">Construction Site</label>
+          <input id="workerSite"
+                 placeholder="e.g. Kianda, Embu, Kiambu"
+                 required>
+
+          <button type="submit">Register Worker</button>
         </form>
-
-        <p style="text-align:center; margin-top:16px;">
-          <a href="/forgot-password">Forgot Password?</a>
-        </p>
-
-        <p id="message" role="status" aria-live="polite"></p>
       </section>
-    </div>
-  </main>
 
-  <script src="/app.js"></script>
+      <section class="panel">
+        <h3>2. Worker Attendance</h3>
+        <p>Enter the registered Worker ID and PIN.</p>
+
+        <form id="attendanceForm">
+          <label for="attendanceWorkerId">Worker ID</label>
+          <input id="attendanceWorkerId" inputmode="numeric"
+                 pattern="[0-9]{8}" maxlength="8"
+                 placeholder="Enter 8-digit Worker ID" required>
+
+          <label for="attendancePin">Worker PIN</label>
+          <input id="attendancePin" type="password"
+                 inputmode="numeric" pattern="[0-9]{4,8}"
+                 minlength="4" maxlength="8"
+                 placeholder="Enter PIN" required>
+
+          <label for="attendanceAction">Attendance Action</label>
+          <select id="attendanceAction" required>
+            <option value="check-in">Check In</option>
+            <option value="check-out">Check Out</option>
+          </select>
+
+          <button type="submit">Submit Attendance</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h3>3. Registered Workers</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Worker ID</th>
+                <th>Phone</th>
+                <th>Role</th>
+                <th>Site</th>
+              </tr>
+            </thead>
+            <tbody id="workersList"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>4. Attendance Records</h3>
+
+        <div class="filters">
+          <div>
+            <label for="dateFilter">Attendance Date</label>
+            <input id="dateFilter" type="date" required>
+          </div>
+
+          <div>
+            <label for="siteFilter">Filter by Site</label>
+            <input id="siteFilter"
+                   placeholder="All sites or e.g. Kianda">
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="filterButton" type="button">View Records</button>
+          <button id="exportButton" class="secondary" type="button">
+            Export CSV
+          </button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Worker ID</th>
+                <th>Site</th>
+                <th>Date</th>
+                <th>Check In</th>
+                <th>Check Out</th>
+              </tr>
+            </thead>
+            <tbody id="attendanceList"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
 </body>
 </html>
