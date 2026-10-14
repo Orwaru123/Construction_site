@@ -1,0 +1,89 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Register Workers | Construction Attendance</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <h1>Construction Site Attendance</h1>
+    <p>Worker Registration</p>
+  </header>
+
+  <main class="container">
+    <nav class="page-nav">
+      <a href="/dashboard.html">Dashboard</a>
+      <a href="/workers.html" aria-current="page">Register Workers</a>
+      <a href="/attendance.html">Worker Attendance</a>
+      <a href="/records.html">Attendance Records</a>
+    </nav>
+
+    <div class="dashboard-heading">
+      <h2>Register a Worker</h2>
+      <button id="logoutButton" type="button">Log Out</button>
+    </div>
+
+    <div id="message" class="message" hidden role="status"></div>
+
+    <section class="panel">
+      <form id="workerForm">
+        <label for="workerName">Worker Full Name</label>
+        <input id="workerName" placeholder="Enter full name" required>
+
+        <label for="workerId">Worker ID (8 digits)</label>
+        <input id="workerId" inputmode="numeric"
+               pattern="[0-9]{8}" maxlength="8"
+               placeholder="e.g. 12345678" required>
+
+        <label for="workerPhone">Phone Number</label>
+        <input id="workerPhone" type="tel"
+               placeholder="Enter phone number" required>
+
+        <label for="workerPin">Worker PIN</label>
+        <input id="workerPin" type="password"
+               inputmode="numeric" pattern="[0-9]{4,8}"
+               minlength="4" maxlength="8"
+               placeholder="Choose a 4–8 digit PIN" required>
+
+        <label for="workerRole">Worker Role</label>
+        <input id="workerRole"
+               placeholder="e.g. Mason, Engineer, General Worker"
+               required>
+
+        <label for="workerSite">Construction Site</label>
+        <input id="workerSite"
+               placeholder="e.g. Kianda, Embu, Kiambu"
+               required>
+
+        <button type="submit">Register Worker</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Registered Workers</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Worker ID</th>
+              <th>Phone</th>
+              <th>Role</th>
+              <th>Site</th>
+            </tr>
+          </thead>
+          <tbody id="workersList">
+            <tr><td colspan="5">Loading workers...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <p><a href="/dashboard.html">← Back to Admin Dashboard</a></p>
+  </main>
+</body>
+</html>
