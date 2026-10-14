@@ -1,4 +1,3 @@
-
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
@@ -7,11 +6,15 @@ const crypto = require("crypto");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const DATA_FILE = process.env.DATA_FILE ||
+const DATA_FILE =
+  process.env.DATA_FILE ||
   path.join(__dirname, "attendance-data.json");
 
-const WORKERS_FILE = process.env.WORKERS_FILE ||
+const WORKERS_FILE =
+  process.env.WORKERS_FILE ||
   path.join(__dirname, "workers.json");
+
+const PUBLIC_DIR = path.join(__dirname, "public");
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
@@ -24,11 +27,20 @@ if (!ADMIN_USERNAME || !ADMIN_PASSWORD || !SESSION_SECRET) {
   process.exit(1);
 }
 
+if (ADMIN_PASSWORD.length < 12 || SESSION_SECRET.length < 32) {
+  console.error(
+    "Use an admin password of at least 12 characters and a SESSION_SECRET of at least 32 characters."
+  );
+  process.exit(1);
+}
+
 app.disable("x-powered-by");
 app.use(express.json({ limit: "50kb" }));
 app.use(express.urlencoded({ extended: false, limit: "10kb" }));
 
+// Sessions are held in memory and expire after 8 hours.
 const sessions = new Map();
+const SESSION_MAX_AGE = 8 * 60 * 60 * 1000;
 
 function readArray(file) {
   try {
@@ -45,9 +57,11 @@ function readArray(file) {
 
 function writeArray(file, records) {
   const temp = file + ".tmp";
+
   fs.writeFileSync(temp, JSON.stringify(records, null, 2), {
     mode: 0o600
   });
+
   fs.renameSync(temp, file);
 }
 
@@ -60,6 +74,7 @@ function getNairobiDate() {
   }).formatToParts(new Date());
 
   const values = {};
+
   for (const part of parts) {
     values[part.type] = part.value;
   }
@@ -73,8 +88,11 @@ function validDate(date) {
   }
 
   const parsed = new Date(`${date}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) &&
-    parsed.toISOString().slice(0, 10) === date;
+
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === date
+  );
 }
 
 function hashPin(pin, salt = crypto.randomBytes(16).toString("hex")) {
@@ -87,8 +105,10 @@ function verifyPin(pin, salt, expectedHash) {
     const actual = crypto.scryptSync(pin, salt, 64);
     const expected = Buffer.from(expectedHash, "hex");
 
-    return actual.length === expected.length &&
-      crypto.timingSafeEqual(actual, expected);
+    return (
+      actual.length === expected.length &&
+      crypto.timingSafeEqual(actual, expected)
+    );
   } catch {
     return false;
   }
@@ -99,38 +119,66 @@ function safeWorker(worker) {
   return publicWorker;
 }
 
+// Read the admin session cookie.
+app.use((req, res, next) => {
+  const cookieHeader = req.headers.cookie || "";
+  const match = cookieHeader.match(
+    /(?:^|;\s*)attendance_sid=([^;]+)/
+  );
+
+  try {
+    req.cookiesSid = match
+      ? decodeURIComponent(match[1])
+      : null;
+  } catch {
+    req.cookiesSid = null;
+  }
+
+  next();
+});
+
 function auth(req, res, next) {
   const sid = req.cookiesSid;
+  const session = sid ? sessions.get(sid) : null;
 
-  if (!sid || !sessions.has(sid)) {
+  if (!session) {
     return res.status(401).json({
       error: "Please sign in as admin first."
+    });
+  }
+
+  if (Date.now() - session.createdAt > SESSION_MAX_AGE) {
+    sessions.delete(sid);
+
+    res.setHeader(
+      "Set-Cookie",
+      "attendance_sid=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0; Secure"
+    );
+
+    return res.status(401).json({
+      error: "Your session has expired. Please sign in again."
     });
   }
 
   next();
 }
 
-// Read the session cookie without an additional dependency.
-app.use((req, res, next) => {
-  const cookieHeader = req.headers.cookie || "";
-  const match = cookieHeader.match(/(?:^|;\s*)attendance_sid=([^;]+)/);
-  req.cookiesSid = match ? decodeURIComponent(match[1]) : null;
-  next();
-});
-
 function setSessionCookie(res, sid) {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  const secure =
+    process.env.NODE_ENV === "production" ? "; Secure" : "";
+
   res.setHeader(
     "Set-Cookie",
     `attendance_sid=${encodeURIComponent(sid)}; HttpOnly; Path=/; SameSite=Strict; Max-Age=28800${secure}`
   );
 }
 
+// Health check.
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// Admin login.
 app.post("/api/login", (req, res) => {
   const { username, password } = req.body || {};
 
@@ -146,42 +194,62 @@ app.post("/api/login", (req, res) => {
   }
 
   const sid = crypto.randomBytes(32).toString("hex");
-  sessions.set(sid, { createdAt: Date.now() });
+
+  sessions.set(sid, {
+    createdAt: Date.now()
+  });
+
   setSessionCookie(res, sid);
 
   res.json({ message: "Login successful." });
 });
 
+// Current admin session.
 app.get("/api/me", auth, (req, res) => {
   res.json({ authenticated: true });
 });
 
+// Admin logout.
 app.post("/api/logout", (req, res) => {
-  if (req.cookiesSid) sessions.delete(req.cookiesSid);
+  if (req.cookiesSid) {
+    sessions.delete(req.cookiesSid);
+  }
+
+  const secure =
+    process.env.NODE_ENV === "production" ? "; Secure" : "";
 
   res.setHeader(
     "Set-Cookie",
-    "attendance_sid=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0"
+    `attendance_sid=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0${secure}`
   );
 
   res.json({ message: "Logged out." });
 });
 
-// Require admin access for worker management and attendance.
+// Protect worker and attendance API endpoints.
 app.use("/api/workers", auth);
 app.use("/api/attendance", auth);
 
+// List registered workers.
 app.get("/api/workers", (req, res) => {
   const workers = readArray(WORKERS_FILE).map(safeWorker);
   res.json({ workers });
 });
 
+// Register a worker.
 app.post("/api/workers", (req, res) => {
-  const { name, workerId, phone, pin, role, site } = req.body || {};
+  const {
+    name,
+    workerId,
+    phone,
+    pin,
+    role,
+    site
+  } = req.body || {};
 
   if (
     ![name, workerId, phone, pin, role, site].every(
-      (value) => typeof value === "string" && value.trim()
+      value => typeof value === "string" && value.trim()
     )
   ) {
     return res.status(400).json({
@@ -189,8 +257,8 @@ app.post("/api/workers", (req, res) => {
     });
   }
 
-  const cleanId = workerId.trim();
   const cleanName = name.trim();
+  const cleanId = workerId.trim();
   const cleanPhone = phone.trim();
   const cleanRole = role.trim();
   const cleanSite = site.trim();
@@ -207,9 +275,11 @@ app.post("/api/workers", (req, res) => {
     });
   }
 
-  if ([cleanName, cleanPhone, cleanRole, cleanSite].some(
-    value => value.length > 120
-  )) {
+  if (
+    [cleanName, cleanPhone, cleanRole, cleanSite].some(
+      value => value.length > 120
+    )
+  ) {
     return res.status(400).json({
       error: "Worker details are too long."
     });
@@ -243,10 +313,12 @@ app.post("/api/workers", (req, res) => {
   });
 });
 
+// Check-in.
 app.post("/api/attendance/check-in", (req, res) => {
   recordAttendance(req, res, "check-in");
 });
 
+// Check-out.
 app.post("/api/attendance/check-out", (req, res) => {
   recordAttendance(req, res, "check-out");
 });
@@ -261,7 +333,7 @@ function recordAttendance(req, res, action) {
     !pin
   ) {
     return res.status(400).json({
-      error: "Enter your Worker ID and PIN."
+      error: "Enter the Worker ID and PIN."
     });
   }
 
@@ -270,7 +342,10 @@ function recordAttendance(req, res, action) {
     item => item.workerId === workerId.trim()
   );
 
-  if (!worker || !verifyPin(pin, worker.pinSalt, worker.pinHash)) {
+  if (
+    !worker ||
+    !verifyPin(pin, worker.pinSalt, worker.pinHash)
+  ) {
     return res.status(401).json({
       error: "Invalid Worker ID or PIN."
     });
@@ -280,15 +355,17 @@ function recordAttendance(req, res, action) {
   const records = readArray(DATA_FILE);
 
   let record = records.find(
-    item => item.workerId === worker.workerId && item.date === date
+    item =>
+      item.workerId === worker.workerId &&
+      item.date === date
   );
 
   if (action === "check-in") {
     if (record) {
       return res.status(409).json({
         error: record.checkOut
-          ? "You have already checked in and checked out today."
-          : "You have already checked in today."
+          ? "This worker has already checked in and checked out today."
+          : "This worker has already checked in today."
       });
     }
 
@@ -306,19 +383,20 @@ function recordAttendance(req, res, action) {
     writeArray(DATA_FILE, records);
 
     return res.json({
-      message: `Check-in successful for ${worker.name} at ${worker.site}.`
+      message:
+        `Check-in successful for ${worker.name} at ${worker.site}.`
     });
   }
 
   if (!record) {
     return res.status(400).json({
-      error: "You must check in before checking out."
+      error: "The worker must check in before checking out."
     });
   }
 
   if (record.checkOut) {
     return res.status(409).json({
-      error: "You have already checked out today."
+      error: "This worker has already checked out today."
     });
   }
 
@@ -330,6 +408,7 @@ function recordAttendance(req, res, action) {
   });
 }
 
+// Read attendance records by date and optional site.
 app.get("/api/attendance", (req, res) => {
   const date = req.query.date || getNairobiDate();
   const site = String(req.query.site || "").trim().toLowerCase();
@@ -342,7 +421,8 @@ app.get("/api/attendance", (req, res) => {
 
   const records = readArray(DATA_FILE).filter(record => {
     const sameDate = record.date === date;
-    const sameSite = !site ||
+    const sameSite =
+      !site ||
       String(record.site || "").toLowerCase().includes(site);
 
     return sameDate && sameSite;
@@ -351,6 +431,7 @@ app.get("/api/attendance", (req, res) => {
   res.json({ records });
 });
 
+// Export attendance records as CSV.
 app.get("/api/attendance/export", (req, res) => {
   const date = req.query.date || getNairobiDate();
   const site = String(req.query.site || "").trim().toLowerCase();
@@ -362,14 +443,23 @@ app.get("/api/attendance/export", (req, res) => {
   }
 
   const records = readArray(DATA_FILE).filter(record => {
-    return record.date === date &&
-      (!site ||
-       String(record.site || "").toLowerCase().includes(site));
+    return (
+      record.date === date &&
+      (
+        !site ||
+        String(record.site || "").toLowerCase().includes(site)
+      )
+    );
   });
 
   const columns = [
-    "Name", "Worker ID", "Role", "Site",
-    "Date", "Check In", "Check Out"
+    "Name",
+    "Worker ID",
+    "Role",
+    "Site",
+    "Date",
+    "Check In",
+    "Check Out"
   ];
 
   const values = records.map(record => [
@@ -382,7 +472,6 @@ app.get("/api/attendance/export", (req, res) => {
     record.checkOut || ""
   ]);
 
-  // Escape CSV cells so commas and quotation marks do not break columns.
   const csvCell = value =>
     `"${String(value ?? "").replace(/"/g, '""')}"`;
 
@@ -395,21 +484,63 @@ app.get("/api/attendance/export", (req, res) => {
     "Content-Disposition",
     `attachment; filename="attendance-${date}.csv"`
   );
+
   res.send("\uFEFF" + csv);
 });
 
-// Serve the website from the public folder.
-app.use(express.static(path.join(__dirname, "public")));
+// Protect HTML pages on the server.
+// The login page remains accessible without a session.
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return next();
+  }
 
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  const page = req.path;
+
+  if (
+    page === "/" ||
+    page === "/index.html" ||
+    !page.endsWith(".html")
+  ) {
+    return next();
+  }
+
+  const sid = req.cookiesSid;
+  const session = sid ? sessions.get(sid) : null;
+
+  if (
+    !session ||
+    Date.now() - session.createdAt > SESSION_MAX_AGE
+  ) {
+    if (sid) sessions.delete(sid);
+    return res.redirect("/");
+  }
+
+  next();
 });
 
+// Serve CSS, JavaScript and other public assets.
+app.use(express.static(PUBLIC_DIR));
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+});
+
+// Handle unexpected server errors.
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: "Server error. Please try again." });
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  res.status(500).json({
+    error: "Server error. Please try again."
+  });
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Construction attendance server running on port ${PORT}`);
+  console.log(
+    `Construction attendance server running on port ${PORT}`
+  );
 });
