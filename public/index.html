@@ -1,61 +1,55 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Construction Site Attendance</title>
+  <title>Admin Login - Construction Site Attendance</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header>
     <h1>Construction Site Attendance</h1>
-    <p>Worker check-in, check-out and engineer dashboard</p>
+    <p>Administrator access only</p>
   </header>
 
   <main class="login-container">
     <div class="card">
-      <div class="tabs">
-        <button id="adminTab" class="active"
-          onclick="choose('admin')">Engineer Login</button>
-        <button id="workerTab"
-          onclick="choose('worker')">Worker Login</button>
-      </div>
-
       <section id="adminLogin">
-        <h2>Engineer Login</h2>
+        <h2>Admin Login</h2>
+        <p>Sign in to manage workers and attendance.</p>
 
-        <label for="adminUser">Username</label>
-        <input id="adminUser" autocomplete="username"
-          placeholder="Enter admin username">
+        <form id="adminLoginForm">
+          <label for="adminUser">Username</label>
+          <input
+            id="adminUser"
+            name="username"
+            type="text"
+            autocomplete="username"
+            placeholder="Enter admin username"
+            required
+          >
 
-        <label for="adminPass">Password</label>
-        <input id="adminPass" type="password"
-          autocomplete="current-password"
-          placeholder="Enter admin password">
+          <label for="adminPass">Password</label>
+          <input
+            id="adminPass"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Enter admin password"
+            required
+          >
 
-        <button class="primary full" onclick="adminLogin()">
-          Sign in
-        </button>
+          <button id="signInButton" class="primary full" type="submit">
+            Sign In
+          </button>
+        </form>
+
+        <p style="text-align:center; margin-top:16px;">
+          <a href="/forgot-password">Forgot Password?</a>
+        </p>
+
+        <p id="message" role="status" aria-live="polite"></p>
       </section>
-
-      <section id="workerLogin" class="hidden">
-        <h2>Worker Login</h2>
-
-        <label for="workerId">Worker ID</label>
-        <input id="workerId" maxlength="8" inputmode="numeric"
-          placeholder="Enter your 8-digit Worker ID">
-
-        <label for="workerPin">PIN</label>
-        <input id="workerPin" type="password" maxlength="6"
-          inputmode="numeric" placeholder="Enter your PIN">
-
-        <button class="primary full" onclick="workerLogin()">
-          Continue to Attendance
-        </button>
-      </section>
-
-      <p id="message"></p>
     </div>
   </main>
 
