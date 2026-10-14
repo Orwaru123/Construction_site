@@ -7,37 +7,51 @@ const crypto = require("crypto");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const DATA_FILE =
-  process.env.DATA_FILE ||
+const DATA_FILE = process.env.DATA_FILE ||
   path.join(__dirname, "attendance-data.json");
+
+const WORKERS_FILE = process.env.WORKERS_FILE ||
+  path.join(__dirname, "workers.json");
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-app.use(express.static(path.join(__dirname, "public")));
+if (!ADMIN_USERNAME || !ADMIN_PASSWORD || !SESSION_SECRET) {
+  console.error(
+    "Set ADMIN_USERNAME, ADMIN_PASSWORD and SESSION_SECRET in your hosting environment."
+  );
+  process.exit(1);
+}
 
-function loadData() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-    fs.writeFileSync(
-      DATA_FILE,
-      JSON.stringify({ workers: [], attendance: [] }, null, 2)
-    );
+app.disable("x-powered-by");
+app.use(express.json({ limit: "50kb" }));
+app.use(express.urlencoded({ extended: false, limit: "10kb" }));
+
+const sessions = new Map();
+
+function readArray(file) {
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    return Array.isArray(value) ? value : [];
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      fs.writeFileSync(file, "[]", { mode: 0o600 });
+      return [];
+    }
+    throw error;
   }
-
-  return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
 }
 
-function saveData(data) {
-  const temp = DATA_FILE + ".tmp";
-  fs.writeFileSync(temp, JSON.stringify(data, null, 2));
-  fs.renameSync(temp, DATA_FILE);
+function writeArray(file, records) {
+  const temp = file + ".tmp";
+  fs.writeFileSync(temp, JSON.stringify(records, null, 2), {
+    mode: 0o600
+  });
+  fs.renameSync(temp, file);
 }
 
-function today() {
+function getNairobiDate() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Africa/Nairobi",
     year: "numeric",
@@ -45,423 +59,357 @@ function today() {
     day: "2-digit"
   }).formatToParts(new Date());
 
-  const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
-  return `${p.year}-${p.month}-${p.day}`;
+  const values = {};
+  for (const part of parts) {
+    values[part.type] = part.value;
+  }
+
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
-function timeNow() {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Africa/Nairobi",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  }).format(new Date());
+function validDate(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) {
+    return false;
+  }
+
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === date;
 }
 
-function makeToken(data) {
-  const body = Buffer.from(JSON.stringify({
-    ...data,
-    exp: Date.now() + 12 * 60 * 60 * 1000
-  })).toString("base64url");
-
-  const signature = crypto
-    .createHmac("sha256", SESSION_SECRET)
-    .update(body)
-    .digest("base64url");
-
-  return body + "." + signature;
+function hashPin(pin, salt = crypto.randomBytes(16).toString("hex")) {
+  const hash = crypto.scryptSync(pin, salt, 64).toString("hex");
+  return { salt, hash };
 }
 
-function session(req) {
-  const cookie = (req.headers.cookie || "")
-    .split(";")
-    .map(x => x.trim())
-    .find(x => x.startsWith("csa_session="));
-
-  if (!cookie) return null;
-
+function verifyPin(pin, salt, expectedHash) {
   try {
-    const token = decodeURIComponent(cookie.slice(12));
-    const [body, signature] = token.split(".");
+    const actual = crypto.scryptSync(pin, salt, 64);
+    const expected = Buffer.from(expectedHash, "hex");
 
-    const expected = crypto
-      .createHmac("sha256", SESSION_SECRET)
-      .update(body)
-      .digest();
-
-    const actual = Buffer.from(signature, "base64url");
-
-    if (
-      actual.length !== expected.length ||
-      !crypto.timingSafeEqual(actual, expected)
-    ) return null;
-
-    const data = JSON.parse(
-      Buffer.from(body, "base64url").toString()
-    );
-
-    if (data.exp < Date.now()) return null;
-
-    return data;
+    return actual.length === expected.length &&
+      crypto.timingSafeEqual(actual, expected);
   } catch {
-    return null;
+    return false;
   }
 }
 
-function setSession(res, data) {
-  const secure =
-    process.env.NODE_ENV === "production" ? "; Secure" : "";
-
-  res.setHeader(
-    "Set-Cookie",
-    `csa_session=${encodeURIComponent(makeToken(data))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200${secure}`
-  );
+function safeWorker(worker) {
+  const { pinSalt, pinHash, ...publicWorker } = worker;
+  return publicWorker;
 }
 
-function logoutCookie(res) {
-  const secure =
-    process.env.NODE_ENV === "production" ? "; Secure" : "";
+function auth(req, res, next) {
+  const sid = req.cookiesSid;
 
-  res.setHeader(
-    "Set-Cookie",
-    `csa_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`
-  );
-}
-
-function adminOnly(req, res, next) {
-  const s = session(req);
-
-  if (!s || s.role !== "admin") {
+  if (!sid || !sessions.has(sid)) {
     return res.status(401).json({
-      message: "Please sign in as the engineer."
+      error: "Please sign in as admin first."
     });
   }
 
   next();
 }
 
-function workerOnly(req, res, next) {
-  const s = session(req);
+// Read the session cookie without an additional dependency.
+app.use((req, res, next) => {
+  const cookieHeader = req.headers.cookie || "";
+  const match = cookieHeader.match(/(?:^|;\s*)attendance_sid=([^;]+)/);
+  req.cookiesSid = match ? decodeURIComponent(match[1]) : null;
+  next();
+});
 
-  if (!s || s.role !== "worker") {
+function setSessionCookie(res, sid) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `attendance_sid=${encodeURIComponent(sid)}; HttpOnly; Path=/; SameSite=Strict; Max-Age=28800${secure}`
+  );
+}
+
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+app.post("/api/login", (req, res) => {
+  const { username, password } = req.body || {};
+
+  if (
+    typeof username !== "string" ||
+    typeof password !== "string" ||
+    username !== ADMIN_USERNAME ||
+    password !== ADMIN_PASSWORD
+  ) {
     return res.status(401).json({
-      message: "Please sign in with your Worker ID and PIN."
+      error: "Incorrect admin username or password."
     });
   }
 
-  req.workerId = s.workerId;
-  next();
+  const sid = crypto.randomBytes(32).toString("hex");
+  sessions.set(sid, { createdAt: Date.now() });
+  setSessionCookie(res, sid);
+
+  res.json({ message: "Login successful." });
+});
+
+app.get("/api/me", auth, (req, res) => {
+  res.json({ authenticated: true });
+});
+
+app.post("/api/logout", (req, res) => {
+  if (req.cookiesSid) sessions.delete(req.cookiesSid);
+
+  res.setHeader(
+    "Set-Cookie",
+    "attendance_sid=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0"
+  );
+
+  res.json({ message: "Logged out." });
+});
+
+// Require admin access for worker management and attendance.
+app.use("/api/workers", auth);
+app.use("/api/attendance", auth);
+
+app.get("/api/workers", (req, res) => {
+  const workers = readArray(WORKERS_FILE).map(safeWorker);
+  res.json({ workers });
+});
+
+app.post("/api/workers", (req, res) => {
+  const { name, workerId, phone, pin, role, site } = req.body || {};
+
+  if (
+    ![name, workerId, phone, pin, role, site].every(
+      (value) => typeof value === "string" && value.trim()
+    )
+  ) {
+    return res.status(400).json({
+      error: "Please fill in every worker field."
+    });
+  }
+
+  const cleanId = workerId.trim();
+  const cleanName = name.trim();
+  const cleanPhone = phone.trim();
+  const cleanRole = role.trim();
+  const cleanSite = site.trim();
+
+  if (!/^\d{8}$/.test(cleanId)) {
+    return res.status(400).json({
+      error: "Worker ID must contain exactly 8 digits."
+    });
+  }
+
+  if (!/^\d{4,8}$/.test(pin)) {
+    return res.status(400).json({
+      error: "PIN must contain 4 to 8 digits."
+    });
+  }
+
+  if ([cleanName, cleanPhone, cleanRole, cleanSite].some(
+    value => value.length > 120
+  )) {
+    return res.status(400).json({
+      error: "Worker details are too long."
+    });
+  }
+
+  const workers = readArray(WORKERS_FILE);
+
+  if (workers.some(worker => worker.workerId === cleanId)) {
+    return res.status(409).json({
+      error: "That Worker ID is already registered."
+    });
+  }
+
+  const { salt, hash } = hashPin(pin);
+
+  workers.push({
+    name: cleanName,
+    workerId: cleanId,
+    phone: cleanPhone,
+    role: cleanRole,
+    site: cleanSite,
+    pinSalt: salt,
+    pinHash: hash,
+    createdAt: new Date().toISOString()
+  });
+
+  writeArray(WORKERS_FILE, workers);
+
+  res.status(201).json({
+    message: "Worker registered successfully."
+  });
+});
+
+app.post("/api/attendance/check-in", (req, res) => {
+  recordAttendance(req, res, "check-in");
+});
+
+app.post("/api/attendance/check-out", (req, res) => {
+  recordAttendance(req, res, "check-out");
+});
+
+function recordAttendance(req, res, action) {
+  const { workerId, pin } = req.body || {};
+
+  if (
+    typeof workerId !== "string" ||
+    typeof pin !== "string" ||
+    !workerId.trim() ||
+    !pin
+  ) {
+    return res.status(400).json({
+      error: "Enter your Worker ID and PIN."
+    });
+  }
+
+  const workers = readArray(WORKERS_FILE);
+  const worker = workers.find(
+    item => item.workerId === workerId.trim()
+  );
+
+  if (!worker || !verifyPin(pin, worker.pinSalt, worker.pinHash)) {
+    return res.status(401).json({
+      error: "Invalid Worker ID or PIN."
+    });
+  }
+
+  const date = getNairobiDate();
+  const records = readArray(DATA_FILE);
+
+  let record = records.find(
+    item => item.workerId === worker.workerId && item.date === date
+  );
+
+  if (action === "check-in") {
+    if (record) {
+      return res.status(409).json({
+        error: record.checkOut
+          ? "You have already checked in and checked out today."
+          : "You have already checked in today."
+      });
+    }
+
+    record = {
+      name: worker.name,
+      workerId: worker.workerId,
+      role: worker.role,
+      site: worker.site,
+      date,
+      checkIn: new Date().toISOString(),
+      checkOut: null
+    };
+
+    records.push(record);
+    writeArray(DATA_FILE, records);
+
+    return res.json({
+      message: `Check-in successful for ${worker.name} at ${worker.site}.`
+    });
+  }
+
+  if (!record) {
+    return res.status(400).json({
+      error: "You must check in before checking out."
+    });
+  }
+
+  if (record.checkOut) {
+    return res.status(409).json({
+      error: "You have already checked out today."
+    });
+  }
+
+  record.checkOut = new Date().toISOString();
+  writeArray(DATA_FILE, records);
+
+  return res.json({
+    message: `Check-out successful for ${worker.name}.`
+  });
 }
 
-function safeWorker(w) {
-  return {
-    worker_id: w.worker_id,
-    first_name: w.first_name,
-    last_name: w.last_name,
-    name: w.first_name + " " + w.last_name,
-    phone: w.phone,
-    role: w.role,
-    site: w.site
-  };
-}
+app.get("/api/attendance", (req, res) => {
+  const date = req.query.date || getNairobiDate();
+  const site = String(req.query.site || "").trim().toLowerCase();
+
+  if (!validDate(date)) {
+    return res.status(400).json({
+      error: "Please select a valid attendance date."
+    });
+  }
+
+  const records = readArray(DATA_FILE).filter(record => {
+    const sameDate = record.date === date;
+    const sameSite = !site ||
+      String(record.site || "").toLowerCase().includes(site);
+
+    return sameDate && sameSite;
+  });
+
+  res.json({ records });
+});
+
+app.get("/api/attendance/export", (req, res) => {
+  const date = req.query.date || getNairobiDate();
+  const site = String(req.query.site || "").trim().toLowerCase();
+
+  if (!validDate(date)) {
+    return res.status(400).json({
+      error: "Please select a valid attendance date."
+    });
+  }
+
+  const records = readArray(DATA_FILE).filter(record => {
+    return record.date === date &&
+      (!site ||
+       String(record.site || "").toLowerCase().includes(site));
+  });
+
+  const columns = [
+    "Name", "Worker ID", "Role", "Site",
+    "Date", "Check In", "Check Out"
+  ];
+
+  const values = records.map(record => [
+    record.name,
+    record.workerId,
+    record.role,
+    record.site,
+    record.date,
+    record.checkIn,
+    record.checkOut || ""
+  ]);
+
+  // Escape CSV cells so commas and quotation marks do not break columns.
+  const csvCell = value =>
+    `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+  const csv = [columns, ...values]
+    .map(row => row.map(csvCell).join(","))
+    .join("\r\n");
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="attendance-${date}.csv"`
+  );
+  res.send("\uFEFF" + csv);
+});
+
+// Serve the website from the public folder.
+app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-app.get("/admin", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "admin.html"));
-});
-
-app.get("/worker", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "worker.html"));
-});
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "OK",
-    date: today(),
-    time: timeNow()
-  });
-});
-
-app.get("/api/session", (req, res) => {
-  const s = session(req);
-
-  if (!s) return res.json({ role: "guest" });
-
-  if (s.role === "admin") {
-    return res.json({ role: "admin" });
-  }
-
-  const worker = loadData().workers.find(
-    w => String(w.worker_id) === String(s.workerId)
-  );
-
-  if (!worker) return res.json({ role: "guest" });
-
-  res.json({
-    role: "worker",
-    worker: safeWorker(worker)
-  });
-});
-
-app.post("/api/admin/login", (req, res) => {
-  if (!ADMIN_USERNAME || !ADMIN_PASSWORD || !SESSION_SECRET) {
-    return res.status(503).json({
-      message: "Configure ADMIN_USERNAME, ADMIN_PASSWORD and SESSION_SECRET in Render."
-    });
-  }
-
-  const username = Buffer.from(String(req.body.username || ""));
-  const expectedUser = Buffer.from(ADMIN_USERNAME);
-  const password = Buffer.from(String(req.body.password || ""));
-  const expectedPass = Buffer.from(ADMIN_PASSWORD);
-
-  const userOK =
-    username.length === expectedUser.length &&
-    crypto.timingSafeEqual(username, expectedUser);
-
-  const passOK =
-    password.length === expectedPass.length &&
-    crypto.timingSafeEqual(password, expectedPass);
-
-  if (!userOK || !passOK) {
-    return res.status(401).json({
-      message: "Incorrect username or password."
-    });
-  }
-
-  setSession(res, {
-    role: "admin",
-    username: ADMIN_USERNAME
-  });
-
-  res.json({ message: "Login successful." });
-});
-
-app.post("/api/worker/login", (req, res) => {
-  const id = String(req.body.worker_id || "").trim();
-  const pin = String(req.body.pin || "").trim();
-
-  const worker = loadData().workers.find(
-    w =>
-      String(w.worker_id) === id &&
-      String(w.pin) === pin &&
-      w.active !== false
-  );
-
-  if (!worker) {
-    return res.status(401).json({
-      message: "Incorrect Worker ID or PIN."
-    });
-  }
-
-  setSession(res, {
-    role: "worker",
-    workerId: worker.worker_id
-  });
-
-  res.json({
-    message: "Login successful.",
-    worker: safeWorker(worker)
-  });
-});
-
-app.post("/api/logout", (req, res) => {
-  logoutCookie(res);
-  res.json({ message: "Signed out." });
-});
-
-app.post("/api/register", adminOnly, (req, res) => {
-  const first = String(req.body.first_name || "").trim();
-  const last = String(req.body.last_name || "").trim();
-  const id = String(req.body.worker_id || "").trim();
-  const phone = String(req.body.phone || "").trim();
-  const pin = String(req.body.pin || "").trim();
-  const role = String(req.body.role || "Worker").trim();
-  const site = String(req.body.site || "").trim();
-
-  if (!first || !last || !site) {
-    return res.status(400).json({
-      message: "Enter first name, last name and site."
-    });
-  }
-
-  if (!/^\d{8}$/.test(id)) {
-    return res.status(400).json({
-      message: "Worker ID must contain exactly 8 digits."
-    });
-  }
-
-  if (!/^(01|07)\d{8}$/.test(phone)) {
-    return res.status(400).json({
-      message: "Enter a valid 10-digit Kenyan phone number."
-    });
-  }
-
-  if (!/^\d{4,6}$/.test(pin)) {
-    return res.status(400).json({
-      message: "PIN must contain 4 to 6 digits."
-    });
-  }
-
-  const data = loadData();
-
-  if (data.workers.some(w => String(w.worker_id) === id)) {
-    return res.status(409).json({
-      message: "Worker ID already exists."
-    });
-  }
-
-  const worker = {
-    worker_id: id,
-    first_name: first,
-    last_name: last,
-    phone,
-    pin,
-    role,
-    site,
-    active: true
-  };
-
-  data.workers.push(worker);
-  saveData(data);
-
-  res.status(201).json({
-    message: "Worker registered successfully.",
-    worker: safeWorker(worker)
-  });
-});
-
-app.get("/api/workers", adminOnly, (req, res) => {
-  res.json(loadData().workers.map(safeWorker));
-});
-
-app.get("/api/sites", adminOnly, (req, res) => {
-  const sites = [
-    ...new Set(loadData().workers.map(w => w.site))
-  ].filter(Boolean);
-
-  res.json(sites.sort());
-});
-
-app.get("/api/attendance", adminOnly, (req, res) => {
-  const date = req.query.date || today();
-  const site = req.query.site || "All Sites";
-
-  const rows = loadData().attendance.filter(a =>
-    a.work_date === date &&
-    (site === "All Sites" || a.site === site)
-  );
-
-  res.json(rows);
-});
-
-app.get("/api/admin/stats", adminOnly, (req, res) => {
-  const date = req.query.date || today();
-  const site = req.query.site || "All Sites";
-  const data = loadData();
-
-  const workers = data.workers.filter(w =>
-    site === "All Sites" || w.site === site
-  );
-
-  const rows = data.attendance.filter(a =>
-    a.work_date === date &&
-    (site === "All Sites" || a.site === site)
-  );
-
-  res.json({
-    total: workers.length,
-    records: rows.length,
-    onsite: rows.filter(a => !a.check_out).length,
-    checkedOut: rows.filter(a => a.check_out).length,
-    absent: Math.max(workers.length - rows.length, 0)
-  });
-});
-
-app.get("/api/my-attendance", workerOnly, (req, res) => {
-  const row = loadData().attendance.find(a =>
-    String(a.worker_id) === String(req.workerId) &&
-    a.work_date === today()
-  );
-
-  res.json(row || null);
-});
-
-app.post("/api/checkin", workerOnly, (req, res) => {
-  const data = loadData();
-
-  const worker = data.workers.find(w =>
-    String(w.worker_id) === String(req.workerId)
-  );
-
-  if (!worker) {
-    return res.status(401).json({
-      message: "Worker account not found."
-    });
-  }
-
-  if (data.attendance.some(a =>
-    String(a.worker_id) === String(worker.worker_id) &&
-    a.work_date === today()
-  )) {
-    return res.status(409).json({
-      message: "You have already checked in today."
-    });
-  }
-
-  const record = {
-    worker_id: worker.worker_id,
-    name: worker.first_name + " " + worker.last_name,
-    phone: worker.phone,
-    role: worker.role,
-    site: worker.site,
-    work_date: today(),
-    check_in: timeNow(),
-    check_out: null
-  };
-
-  data.attendance.push(record);
-  saveData(data);
-
-  res.json({
-    message: "Check-in successful.",
-    attendance: record
-  });
-});
-
-app.post("/api/checkout", workerOnly, (req, res) => {
-  const data = loadData();
-
-  const record = data.attendance.find(a =>
-    String(a.worker_id) === String(req.workerId) &&
-    a.work_date === today()
-  );
-
-  if (!record) {
-    return res.status(400).json({
-      message: "Check in before checking out."
-    });
-  }
-
-  if (record.check_out) {
-    return res.status(409).json({
-      message: "You have already checked out today."
-    });
-  }
-
-  record.check_out = timeNow();
-  saveData(data);
-
-  res.json({
-    message: "Check-out successful.",
-    attendance: record
-  });
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: "Server error. Please try again." });
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log("Attendance server running on port " + PORT);
+  console.log(`Construction attendance server running on port ${PORT}`);
 });
