@@ -1,16 +1,11 @@
-// public/app.js
 
+"use strict";
+
+// Construction Site Attendance - multi-page JavaScript
 const $ = (id) => document.getElementById(id);
 
-const loginSection = $("loginSection");
-const appSection = $("appSection");
 const messageBox = $("message");
-const workerForm = $("workerForm");
-const attendanceForm = $("attendanceForm");
-const workersList = $("workersList");
-const attendanceList = $("attendanceList");
-const siteFilter = $("siteFilter");
-const dateFilter = $("dateFilter");
+const page = window.location.pathname.split("/").pop() || "index.html";
 
 async function api(url, options = {}) {
   const response = await fetch(url, {
@@ -32,12 +27,20 @@ async function api(url, options = {}) {
 }
 
 function showMessage(message, isError = false) {
+  if (!messageBox) {
+    alert(message);
+    return;
+  }
+
   messageBox.textContent = message;
-  messageBox.className = isError ? "message error" : "message success";
+  messageBox.className = isError
+    ? "message error"
+    : "message success";
   messageBox.hidden = false;
 }
 
 function clearMessage() {
+  if (!messageBox) return;
   messageBox.hidden = true;
   messageBox.textContent = "";
 }
@@ -53,12 +56,19 @@ function escapeHTML(value) {
 }
 
 function today() {
-  return new Intl.DateTimeFormat("en-CA", {
+  const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Africa/Nairobi",
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).format(new Date());
+  }).formatToParts(new Date());
+
+  const values = {};
+  for (const part of parts) {
+    values[part.type] = part.value;
+  }
+
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function displayTime(value) {
@@ -72,110 +82,83 @@ function displayTime(value) {
   });
 }
 
-async function checkLogin() {
+function goTo(url) {
+  window.location.href = url;
+}
+
+// Check admin authentication on every protected page.
+async function requireAdmin() {
   try {
     await api("/api/me");
-    loginSection.hidden = true;
-    appSection.hidden = false;
-
-    if (!dateFilter.value) dateFilter.value = today();
-
-    await loadWorkers();
-    await loadAttendance();
+    return true;
   } catch {
-    loginSection.hidden = false;
-    appSection.hidden = true;
+    goTo("/");
+    return false;
   }
 }
 
-$("loginForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  clearMessage();
+// ADMIN LOGIN PAGE
+const loginForm = $("loginForm");
 
-  try {
-    await api("/api/login", {
-      method: "POST",
-      body: JSON.stringify({
-        username: $("username").value.trim(),
-        password: $("password").value
-      })
-    });
+if (loginForm) {
+  // If already signed in, go straight to the dashboard.
+  api("/api/me")
+    .then(() => goTo("/dashboard.html"))
+    .catch(() => {});
 
-    $("password").value = "";
-    loginSection.hidden = true;
-    appSection.hidden = false;
-    dateFilter.value = today();
-
-    await loadWorkers();
-    await loadAttendance();
-    showMessage("Admin login successful.");
-  } catch (error) {
-    showMessage(error.message, true);
-  }
-});
-
-$("logoutButton").addEventListener("click", async () => {
-  try {
-    await api("/api/logout", { method: "POST" });
-  } finally {
-    appSection.hidden = true;
-    loginSection.hidden = false;
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
     clearMessage();
-  }
-});
 
-workerForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  clearMessage();
+    const username = $("username");
+    const password = $("password");
+    const button = loginForm.querySelector('button[type="submit"]');
 
-  const worker = {
-    name: $("workerName").value.trim(),
-    workerId: $("workerId").value.trim(),
-    phone: $("workerPhone").value.trim(),
-    pin: $("workerPin").value,
-    role: $("workerRole").value.trim(),
-    site: $("workerSite").value.trim()
-  };
+    try {
+      if (button) button.disabled = true;
 
-  try {
-    await api("/api/workers", {
-      method: "POST",
-      body: JSON.stringify(worker)
-    });
+      await api("/api/login", {
+        method: "POST",
+        body: JSON.stringify({
+          username: username.value.trim(),
+          password: password.value
+        })
+      });
 
-    workerForm.reset();
-    showMessage("Worker registered successfully.");
-    await loadWorkers();
-  } catch (error) {
-    showMessage(error.message, true);
-  }
-});
+      password.value = "";
+      goTo("/dashboard.html");
+    } catch (error) {
+      showMessage(error.message, true);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
+}
 
-attendanceForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  clearMessage();
+// LOG OUT BUTTON - can appear on any protected page.
+const logoutButton = $("logoutButton");
 
-  const action = $("attendanceAction").value;
+if (logoutButton) {
+  logoutButton.addEventListener("click", async () => {
+    try {
+      await api("/api/logout", { method: "POST" });
+    } catch (error) {
+      showMessage(error.message, true);
+      return;
+    }
 
-  try {
-    const result = await api(`/api/attendance/${action}`, {
-      method: "POST",
-      body: JSON.stringify({
-        workerId: $("attendanceWorkerId").value.trim(),
-        pin: $("attendancePin").value
-      })
-    });
+    goTo("/");
+  });
+}
 
-    $("attendancePin").value = "";
-    showMessage(result.message);
-    await loadAttendance();
-  } catch (error) {
-    showMessage(error.message, true);
-  }
-});
+// WORKER REGISTRATION PAGE
+const workerForm = $("workerForm");
+const workersList = $("workersList");
 
 async function loadWorkers() {
   const data = await api("/api/workers");
+
+  if (!workersList) return;
 
   workersList.innerHTML = data.workers.length
     ? data.workers.map((worker) => `
@@ -190,11 +173,82 @@ async function loadWorkers() {
     : '<tr><td colspan="5">No workers registered yet.</td></tr>';
 }
 
+if (workerForm) {
+  workerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    clearMessage();
+
+    const worker = {
+      name: $("workerName").value.trim(),
+      workerId: $("workerId").value.trim(),
+      phone: $("workerPhone").value.trim(),
+      pin: $("workerPin").value,
+      role: $("workerRole").value.trim(),
+      site: $("workerSite").value.trim()
+    };
+
+    try {
+      await api("/api/workers", {
+        method: "POST",
+        body: JSON.stringify(worker)
+      });
+
+      workerForm.reset();
+      showMessage("Worker registered successfully.");
+      await loadWorkers();
+    } catch (error) {
+      showMessage(error.message, true);
+    }
+  });
+}
+
+// WORKER ATTENDANCE PAGE
+const attendanceForm = $("attendanceForm");
+
+if (attendanceForm) {
+  attendanceForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    clearMessage();
+
+    const action = $("attendanceAction").value;
+
+    try {
+      const result = await api(`/api/attendance/${action}`, {
+        method: "POST",
+        body: JSON.stringify({
+          workerId: $("attendanceWorkerId").value.trim(),
+          pin: $("attendancePin").value
+        })
+      });
+
+      $("attendancePin").value = "";
+      showMessage(result.message || "Attendance recorded successfully.");
+
+      const refreshButton = $("refreshAttendanceButton");
+      if (refreshButton) refreshButton.click();
+    } catch (error) {
+      showMessage(error.message, true);
+    }
+  });
+}
+
+// ATTENDANCE RECORDS PAGE
+const attendanceList = $("attendanceList");
+const siteFilter = $("siteFilter");
+const dateFilter = $("dateFilter");
+
 async function loadAttendance() {
+  if (!attendanceList) return;
+
   const params = new URLSearchParams();
 
-  if (dateFilter.value) params.set("date", dateFilter.value);
-  if (siteFilter.value.trim()) params.set("site", siteFilter.value.trim());
+  if (dateFilter && dateFilter.value) {
+    params.set("date", dateFilter.value);
+  }
+
+  if (siteFilter && siteFilter.value.trim()) {
+    params.set("site", siteFilter.value.trim());
+  }
 
   try {
     const data = await api(`/api/attendance?${params.toString()}`);
@@ -216,38 +270,77 @@ async function loadAttendance() {
   }
 }
 
-$("filterButton").addEventListener("click", loadAttendance);
-dateFilter.addEventListener("change", loadAttendance);
+if (dateFilter && !dateFilter.value) {
+  dateFilter.value = today();
+}
 
-$("exportButton").addEventListener("click", async () => {
-  const params = new URLSearchParams();
+const filterButton = $("filterButton");
 
-  if (dateFilter.value) params.set("date", dateFilter.value);
-  if (siteFilter.value.trim()) params.set("site", siteFilter.value.trim());
+if (filterButton) {
+  filterButton.addEventListener("click", loadAttendance);
+}
 
-  try {
-    const response = await fetch(
-      `/api/attendance/export?${params.toString()}`,
-      { credentials: "same-origin" }
-    );
+if (dateFilter) {
+  dateFilter.addEventListener("change", loadAttendance);
+}
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || "Could not export attendance.");
+if (siteFilter) {
+  siteFilter.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      loadAttendance();
+    }
+  });
+}
+
+const exportButton = $("exportButton");
+
+if (exportButton) {
+  exportButton.addEventListener("click", async () => {
+    const params = new URLSearchParams();
+
+    if (dateFilter && dateFilter.value) {
+      params.set("date", dateFilter.value);
     }
 
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
+    if (siteFilter && siteFilter.value.trim()) {
+      params.set("site", siteFilter.value.trim());
+    }
 
-    link.href = url;
-    link.download = `attendance-${dateFilter.value || today()}.csv`;
-    link.click();
+    try {
+      const response = await fetch(
+        `/api/attendance/export?${params.toString()}`,
+        { credentials: "same-origin" }
+      );
 
-    URL.revokeObjectURL(url);
-  } catch (error) {
-    showMessage(error.message, true);
-  }
-});
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Could not export attendance.");
+      }
 
-checkLogin();
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = `attendance-${dateFilter?.value || today()}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      showMessage(error.message, true);
+    }
+  });
+}
+
+// Protect all non-login pages and initialize only their own features.
+if (page !== "index.html" && page !== "") {
+  requireAdmin().then((authenticated) => {
+    if (!authenticated) return;
+
+    if (workersList) loadWorkers();
+    if (attendanceList) loadAttendance();
+  });
+}
