@@ -1,0 +1,67 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Worker Attendance | Construction Attendance</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <h1>Construction Site Attendance</h1>
+    <p>Worker Check-In and Check-Out</p>
+  </header>
+
+  <main class="container">
+    <nav class="page-nav">
+      <a href="/dashboard.html">Dashboard</a>
+      <a href="/workers.html">Register Workers</a>
+      <a href="/attendance.html" aria-current="page">Worker Attendance</a>
+      <a href="/records.html">Attendance Records</a>
+    </nav>
+
+    <div class="dashboard-heading">
+      <h2>Worker Attendance</h2>
+      <button id="logoutButton" type="button">Log Out</button>
+    </div>
+
+    <div id="message" class="message" hidden role="status"></div>
+
+    <section class="panel">
+      <p>Enter the registered worker's ID and PIN to record attendance.</p>
+
+      <form id="attendanceForm">
+        <label for="attendanceWorkerId">Worker ID</label>
+        <input id="attendanceWorkerId"
+               inputmode="numeric"
+               pattern="[0-9]{8}"
+               maxlength="8"
+               placeholder="Enter 8-digit Worker ID"
+               required>
+
+        <label for="attendancePin">Worker PIN</label>
+        <input id="attendancePin"
+               type="password"
+               inputmode="numeric"
+               pattern="[0-9]{4,8}"
+               minlength="4"
+               maxlength="8"
+               placeholder="Enter worker PIN"
+               required>
+
+        <label for="attendanceAction">Attendance Action</label>
+        <select id="attendanceAction" required>
+          <option value="check-in">Check In</option>
+          <option value="check-out">Check Out</option>
+        </select>
+
+        <button type="submit">Submit Attendance</button>
+      </form>
+    </section>
+
+    <p><a href="/dashboard.html">← Back to Admin Dashboard</a></p>
+  </main>
+</body>
+</html>
