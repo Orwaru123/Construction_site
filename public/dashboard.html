@@ -1,13 +1,108 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Admin Dashboard | Construction Attendance</title>
+  <meta name="theme-color" content="#172B4D">
+  <title>Admin Dashboard | Construction Site Attendance</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
+
+  <style>
+    .summary-section {
+      margin: 24px 0;
+    }
+
+    .summary-date {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .summary-date input {
+      max-width: 220px;
+      padding: 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font: inherit;
+    }
+
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 14px;
+      margin: 20px 0;
+    }
+
+    .summary-card {
+      padding: 18px;
+      border-radius: 12px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+    }
+
+    .summary-card h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: #475569;
+    }
+
+    .summary-number {
+      margin: 0;
+      font-size: 30px;
+      font-weight: 700;
+      color: #172B4D;
+    }
+
+    .summary-card.total {
+      background: #172B4D;
+      border-color: #172B4D;
+    }
+
+    .summary-card.total h3,
+    .summary-card.total .summary-number {
+      color: #ffffff;
+    }
+
+    .summary-table-wrap {
+      overflow-x: auto;
+      background: #ffffff;
+      border-radius: 10px;
+      margin-top: 16px;
+    }
+
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+
+    .summary-table th,
+    .summary-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .summary-table th {
+      background: #172B4D;
+      color: #ffffff;
+    }
+
+    .summary-table tbody tr:nth-child(even) {
+      background: #f8fafc;
+    }
+
+    .summary-subtitle {
+      color: #64748b;
+      margin-top: 4px;
+    }
+  </style>
 </head>
+
 <body>
   <header class="header">
     <h1>Construction Site Attendance</h1>
@@ -21,6 +116,80 @@
     </div>
 
     <div id="message" class="message" hidden role="status"></div>
+
+    <section class="summary-section">
+      <h2>Daily Workforce Summary</h2>
+      <p class="summary-subtitle">
+        Attendance figures from the database for the selected date.
+      </p>
+
+      <div class="summary-date">
+        <label for="summaryDate"><strong>Select date:</strong></label>
+        <input type="date" id="summaryDate" required>
+      </div>
+
+      <div class="summary-cards">
+        <article class="summary-card total">
+          <h3>Total Present</h3>
+          <p class="summary-number" id="totalPresent">—</p>
+        </article>
+
+        <article class="summary-card">
+          <h3>Workers</h3>
+          <p class="summary-number" id="totalWorkers">—</p>
+        </article>
+
+        <article class="summary-card">
+          <h3>Supervisors</h3>
+          <p class="summary-number" id="totalSupervisors">—</p>
+        </article>
+
+        <article class="summary-card">
+          <h3>Engineers</h3>
+          <p class="summary-number" id="totalEngineers">—</p>
+        </article>
+
+        <article class="summary-card">
+          <h3>Contractors</h3>
+          <p class="summary-number" id="totalContractors">—</p>
+        </article>
+
+        <article class="summary-card">
+          <h3>Security Officers</h3>
+          <p class="summary-number" id="totalSecurity">—</p>
+        </article>
+
+        <article class="summary-card">
+          <h3>Other Staff</h3>
+          <p class="summary-number" id="totalOtherStaff">—</p>
+        </article>
+      </div>
+
+      <h3>Attendance by Construction Site</h3>
+
+      <div class="summary-table-wrap">
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>Construction Site</th>
+              <th>Workers</th>
+              <th>Supervisors</th>
+              <th>Engineers</th>
+              <th>Contractors</th>
+              <th>Security Officers</th>
+              <th>Other Staff</th>
+              <th>Total Present</th>
+            </tr>
+          </thead>
+
+          <tbody id="siteSummaryTable">
+            <tr>
+              <td colspan="8">Loading workforce summary...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <section class="dashboard-grid">
       <a class="dashboard-card" href="/workers.html">
