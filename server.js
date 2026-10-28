@@ -1,3 +1,4 @@
+"use strict";
 
 const express = require("express");
 const path = require("path");
@@ -13,6 +14,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const DATABASE_URL = process.env.DATABASE_URL;
 
+// Validate required environment variables.
 if (!ADMIN_USERNAME || !ADMIN_PASSWORD || !SESSION_SECRET) {
   console.error(
     "Set ADMIN_USERNAME, ADMIN_PASSWORD and SESSION_SECRET."
@@ -32,6 +34,7 @@ if (ADMIN_PASSWORD.length < 12 || SESSION_SECRET.length < 32) {
   process.exit(1);
 }
 
+// Neon PostgreSQL connection.
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false },
@@ -39,13 +42,17 @@ const pool = new Pool({
   idleTimeoutMillis: 30000
 });
 
-pool.on("error", err => {
+pool.on("error", (err) => {
   console.error("Unexpected PostgreSQL pool error:", err.message);
 });
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "50kb" }));
 app.use(express.urlencoded({ extended: false, limit: "10kb" }));
+
+// --------------------------------------------------
+// ADMIN SESSIONS
+// --------------------------------------------------
 
 const sessions = new Map();
 const SESSION_MAX_AGE = 8 * 60 * 60 * 1000;
@@ -59,23 +66,35 @@ function getNairobiDate() {
   }).formatToParts(new Date());
 
   const values = {};
-  for (const part of parts) values[part.type] = part.value;
+
+  for (const part of parts) {
+    values[part.type] = part.value;
+  }
 
   return `${values.year}-${values.month}-${values.day}`;
 }
 
 function validDate(date) {
-  if (typeof date !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (
+    typeof date !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date)
+  ) {
     return false;
   }
 
   const parsed = new Date(`${date}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) &&
-    parsed.toISOString().slice(0, 10) === date;
+
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === date
+  );
 }
 
-function hashPin(pin, salt = crypto.randomBytes(16).toString("hex")) {
+// Hash worker PINs securely.
+function hashPin(
+  pin,
+  salt = crypto.randomBytes(16).toString("hex")
+) {
   return {
     salt,
     hash: crypto.scryptSync(pin, salt, 64).toString("hex")
@@ -87,8 +106,10 @@ function verifyPin(pin, salt, expectedHash) {
     const actual = crypto.scryptSync(pin, salt, 64);
     const expected = Buffer.from(expectedHash, "hex");
 
-    return actual.length === expected.length &&
-      crypto.timingSafeEqual(actual, expected);
+    return (
+      actual.length === expected.length &&
+      crypto.timingSafeEqual(actual, expected)
+    );
   } catch {
     return false;
   }
@@ -100,17 +121,22 @@ function safeWorker(worker) {
     pinHash,
     ...publicWorker
   } = worker;
+
   return publicWorker;
 }
 
+// Read the session cookie.
 app.use((req, res, next) => {
   const header = req.headers.cookie || "";
+
   const match = header.match(
     /(?:^|;\s*)attendance_sid=([^;]+)/
   );
 
   try {
-    req.cookiesSid = match ? decodeURIComponent(match[1]) : null;
+    req.cookiesSid = match
+      ? decodeURIComponent(match[1])
+      : null;
   } catch {
     req.cookiesSid = null;
   }
@@ -118,6 +144,7 @@ app.use((req, res, next) => {
   next();
 });
 
+// Require a valid administrator session.
 function auth(req, res, next) {
   const sid = req.cookiesSid;
   const session = sid ? sessions.get(sid) : null;
@@ -130,6 +157,7 @@ function auth(req, res, next) {
 
   if (Date.now() - session.createdAt > SESSION_MAX_AGE) {
     sessions.delete(sid);
+
     res.setHeader(
       "Set-Cookie",
       "attendance_sid=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0; Secure"
@@ -145,7 +173,9 @@ function auth(req, res, next) {
 
 function setSessionCookie(res, sid) {
   const secure =
-    process.env.NODE_ENV === "production" ? "; Secure" : "";
+    process.env.NODE_ENV === "production"
+      ? "; Secure"
+      : "";
 
   res.setHeader(
     "Set-Cookie",
@@ -153,19 +183,30 @@ function setSessionCookie(res, sid) {
   );
 }
 
+// --------------------------------------------------
+// HEALTH CHECKS
+// --------------------------------------------------
+
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Database connection test.
 app.get("/api/db-health", auth, async (req, res, next) => {
   try {
     await pool.query("SELECT 1");
-    res.json({ status: "ok", database: "connected" });
+
+    res.json({
+      status: "ok",
+      database: "connected"
+    });
   } catch (err) {
     next(err);
   }
 });
+
+// --------------------------------------------------
+// ADMIN LOGIN AND LOGOUT
+// --------------------------------------------------
 
 app.post("/api/login", (req, res) => {
   const { username, password } = req.body || {};
@@ -182,61 +223,94 @@ app.post("/api/login", (req, res) => {
   }
 
   const sid = crypto.randomBytes(32).toString("hex");
-  sessions.set(sid, { createdAt: Date.now() });
+
+  sessions.set(sid, {
+    createdAt: Date.now()
+  });
+
   setSessionCookie(res, sid);
 
-  res.json({ message: "Login successful." });
+  res.json({
+    message: "Login successful."
+  });
 });
 
 app.get("/api/me", auth, (req, res) => {
-  res.json({ authenticated: true });
+  res.json({
+    authenticated: true
+  });
 });
 
 app.post("/api/logout", (req, res) => {
-  if (req.cookiesSid) sessions.delete(req.cookiesSid);
+  if (req.cookiesSid) {
+    sessions.delete(req.cookiesSid);
+  }
 
   const secure =
-    process.env.NODE_ENV === "production" ? "; Secure" : "";
+    process.env.NODE_ENV === "production"
+      ? "; Secure"
+      : "";
 
   res.setHeader(
     "Set-Cookie",
     `attendance_sid=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0${secure}`
   );
 
-  res.json({ message: "Logged out." });
+  res.json({
+    message: "Logged out."
+  });
 });
 
+// Protect worker and attendance API routes.
 app.use("/api/workers", auth);
 app.use("/api/attendance", auth);
 
-// List workers. Never send PIN hashes to the browser.
+// --------------------------------------------------
+// LIST REGISTERED WORKERS
+// --------------------------------------------------
+
 app.get("/api/workers", async (req, res, next) => {
   try {
     const result = await pool.query(`
-      SELECT name,
-             worker_id AS "workerId",
-             phone,
-             role,
-             site,
-             created_at AS "createdAt"
+      SELECT
+        name,
+        worker_id AS "workerId",
+        phone,
+        role,
+        site,
+        created_at AS "createdAt"
       FROM workers
       ORDER BY created_at DESC
     `);
 
-    res.json({ workers: result.rows });
+    res.json({
+      workers: result.rows
+    });
   } catch (err) {
     next(err);
   }
 });
 
-// Register a worker.
+// --------------------------------------------------
+// REGISTER A WORKER
+// --------------------------------------------------
+
 app.post("/api/workers", async (req, res, next) => {
   try {
-    const { name, workerId, phone, pin, role, site } = req.body || {};
+    const {
+      name,
+      workerId,
+      phone,
+      pin,
+      role,
+      site
+    } = req.body || {};
 
     if (
       ![name, workerId, phone, pin, role, site].every(
-        value => typeof value === "string" && value.trim()
+        value =>
+          typeof value === "string" &&
+          value.trim()
       )
     ) {
       return res.status(400).json({
@@ -263,9 +337,12 @@ app.post("/api/workers", async (req, res, next) => {
     }
 
     if (
-      [cleanName, cleanPhone, cleanRole, cleanSite].some(
-        value => value.length > 120
-      )
+      [
+        cleanName,
+        cleanPhone,
+        cleanRole,
+        cleanSite
+      ].some(value => value.length > 120)
     ) {
       return res.status(400).json({
         error: "Worker details are too long."
@@ -276,9 +353,25 @@ app.post("/api/workers", async (req, res, next) => {
 
     await pool.query(
       `INSERT INTO workers
-       (worker_id, name, phone, role, site, pin_salt, pin_hash)
+       (
+         worker_id,
+         name,
+         phone,
+         role,
+         site,
+         pin_salt,
+         pin_hash
+       )
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [cleanId, cleanName, cleanPhone, cleanRole, cleanSite, salt, hash]
+      [
+        cleanId,
+        cleanName,
+        cleanPhone,
+        cleanRole,
+        cleanSite,
+        salt,
+        hash
+      ]
     );
 
     res.status(201).json({
@@ -290,18 +383,28 @@ app.post("/api/workers", async (req, res, next) => {
         error: "That Worker ID is already registered."
       });
     }
+
     next(err);
   }
 });
 
-// Check-in and check-out.
-app.post("/api/attendance/check-in", (req, res, next) => {
-  recordAttendance(req, res, "check-in", next);
-});
+// --------------------------------------------------
+// WORKER CHECK-IN AND CHECK-OUT
+// --------------------------------------------------
 
-app.post("/api/attendance/check-out", (req, res, next) => {
-  recordAttendance(req, res, "check-out", next);
-});
+app.post(
+  "/api/attendance/check-in",
+  (req, res, next) => {
+    recordAttendance(req, res, "check-in", next);
+  }
+);
+
+app.post(
+  "/api/attendance/check-out",
+  (req, res, next) => {
+    recordAttendance(req, res, "check-out", next);
+  }
+);
 
 async function recordAttendance(req, res, action, next) {
   try {
@@ -319,8 +422,15 @@ async function recordAttendance(req, res, action, next) {
     }
 
     const workerResult = await pool.query(
-      `SELECT worker_id, name, role, site, pin_salt, pin_hash
-       FROM workers WHERE worker_id = $1`,
+      `SELECT
+         worker_id,
+         name,
+         role,
+         site,
+         pin_salt,
+         pin_hash
+       FROM workers
+       WHERE worker_id = $1`,
       [workerId.trim()]
     );
 
@@ -328,7 +438,11 @@ async function recordAttendance(req, res, action, next) {
 
     if (
       !worker ||
-      !verifyPin(pin, worker.pin_salt, worker.pin_hash)
+      !verifyPin(
+        pin,
+        worker.pin_salt,
+        worker.pin_hash
+      )
     ) {
       return res.status(401).json({
         error: "Invalid Worker ID or PIN."
@@ -341,15 +455,30 @@ async function recordAttendance(req, res, action, next) {
       try {
         await pool.query(
           `INSERT INTO attendance
-           (worker_id, name, role, site, attendance_date, check_in)
+           (
+             worker_id,
+             name,
+             role,
+             site,
+             attendance_date,
+             check_in
+           )
            VALUES ($1, $2, $3, $4, $5::date, NOW())`,
-          [worker.worker_id, worker.name, worker.role, worker.site, date]
+          [
+            worker.worker_id,
+            worker.name,
+            worker.role,
+            worker.site,
+            date
+          ]
         );
       } catch (err) {
         if (err.code === "23505") {
           const existing = await pool.query(
-            `SELECT check_out FROM attendance
-             WHERE worker_id = $1 AND attendance_date = $2::date`,
+            `SELECT check_out
+             FROM attendance
+             WHERE worker_id = $1
+               AND attendance_date = $2::date`,
             [worker.worker_id, date]
           );
 
@@ -359,11 +488,13 @@ async function recordAttendance(req, res, action, next) {
               : "This worker has already checked in today."
           });
         }
+
         throw err;
       }
 
       return res.json({
-        message: `Check-in successful for ${worker.name} at ${worker.site}.`
+        message:
+          `Check-in successful for ${worker.name} at ${worker.site}.`
       });
     }
 
@@ -379,14 +510,17 @@ async function recordAttendance(req, res, action, next) {
 
     if (updated.rowCount === 0) {
       const existing = await pool.query(
-        `SELECT check_out FROM attendance
-         WHERE worker_id = $1 AND attendance_date = $2::date`,
+        `SELECT check_out
+         FROM attendance
+         WHERE worker_id = $1
+           AND attendance_date = $2::date`,
         [worker.worker_id, date]
       );
 
       if (!existing.rows.length) {
         return res.status(400).json({
-          error: "The worker must check in before checking out."
+          error:
+            "The worker must check in before checking out."
         });
       }
 
@@ -403,22 +537,31 @@ async function recordAttendance(req, res, action, next) {
   }
 }
 
+// --------------------------------------------------
+// ATTENDANCE RECORD QUERY
+// --------------------------------------------------
+
 const ATTENDANCE_SELECT = `
-  SELECT name,
-         worker_id AS "workerId",
-         role,
-         site,
-         attendance_date::text AS date,
-         check_in AS "checkIn",
-         check_out AS "checkOut"
+  SELECT
+    name,
+    worker_id AS "workerId",
+    role,
+    site,
+    attendance_date::text AS date,
+    check_in AS "checkIn",
+    check_out AS "checkOut"
   FROM attendance
 `;
 
 function attendanceFilters(date, site) {
   if (site) {
     return {
-      sql: " WHERE attendance_date = $1::date AND LOWER(site) LIKE $2",
-      params: [date, `%${site.toLowerCase()}%`]
+      sql:
+        " WHERE attendance_date = $1::date AND LOWER(site) LIKE $2",
+      params: [
+        date,
+        `%${site.toLowerCase()}%`
+      ]
     };
   }
 
@@ -441,71 +584,227 @@ app.get("/api/attendance", async (req, res, next) => {
     }
 
     const filter = attendanceFilters(date, site);
+
     const result = await pool.query(
-      ATTENDANCE_SELECT + filter.sql + " ORDER BY check_in DESC",
+      ATTENDANCE_SELECT +
+        filter.sql +
+        " ORDER BY check_in DESC",
       filter.params
     );
 
-    res.json({ records: result.rows });
+    res.json({
+      records: result.rows
+    });
   } catch (err) {
     next(err);
   }
 });
 
-// Export attendance as CSV.
-app.get("/api/attendance/export", async (req, res, next) => {
+// --------------------------------------------------
+// DAILY WORKFORCE SUMMARY
+// --------------------------------------------------
+
+function categoryFor(role) {
+  const value = String(role || "").toLowerCase();
+
+  if (
+    value.includes("supervisor") ||
+    value.includes("foreman")
+  ) {
+    return "Supervisors";
+  }
+
+  if (value.includes("engineer")) {
+    return "Engineers";
+  }
+
+  if (value.includes("contractor")) {
+    return "Contractors";
+  }
+
+  if (
+    value.includes("security") ||
+    value.includes("guard")
+  ) {
+    return "Security Officers";
+  }
+
+  if (
+    value.includes("worker") ||
+    value.includes("labour") ||
+    value.includes("labor") ||
+    value.includes("mason") ||
+    value.includes("carpenter") ||
+    value.includes("electrician") ||
+    value.includes("plumber") ||
+    value.includes("painter") ||
+    value.includes("welder") ||
+    value.includes("operator") ||
+    value.includes("technician")
+  ) {
+    return "Workers";
+  }
+
+  return "Other Staff";
+}
+
+app.get("/api/summary", auth, async (req, res, next) => {
   try {
     const date = req.query.date || getNairobiDate();
-    const site = String(req.query.site || "").trim();
 
     if (!validDate(date)) {
       return res.status(400).json({
-        error: "Please select a valid attendance date."
+        error: "Please select a valid date."
       });
     }
 
-    const filter = attendanceFilters(date, site);
+    // Read attendance records for the selected date.
+    // No worker or attendance records are changed.
     const result = await pool.query(
-      ATTENDANCE_SELECT + filter.sql + " ORDER BY check_in",
-      filter.params
+      `SELECT
+         site,
+         role,
+         COUNT(*)::int AS total
+       FROM attendance
+       WHERE attendance_date = $1::date
+       GROUP BY site, role
+       ORDER BY site, role`,
+      [date]
     );
 
-    const columns = [
-      "Name", "Worker ID", "Role", "Site",
-      "Date", "Check In", "Check Out"
+    const categories = [
+      "Workers",
+      "Supervisors",
+      "Engineers",
+      "Contractors",
+      "Security Officers",
+      "Other Staff"
     ];
 
-    const values = result.rows.map(record => [
-      record.name,
-      record.workerId,
-      record.role,
-      record.site,
-      record.date,
-      record.checkIn ? new Date(record.checkIn).toISOString() : "",
-      record.checkOut ? new Date(record.checkOut).toISOString() : ""
-    ]);
-
-    const csvCell = value =>
-      `"${String(value ?? "").replace(/"/g, '""')}"`;
-
-    const csv = [columns, ...values]
-      .map(row => row.map(csvCell).join(","))
-      .join("\r\n");
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="attendance-${date}.csv"`
+    const roleCounts = Object.fromEntries(
+      categories.map(category => [category, 0])
     );
-    res.send("\uFEFF" + csv);
+
+    const siteMap = {};
+
+    for (const row of result.rows) {
+      const category = categoryFor(row.role);
+      const count = Number(row.total);
+      const siteName = row.site || "Unspecified Site";
+
+      roleCounts[category] += count;
+
+      if (!siteMap[siteName]) {
+        siteMap[siteName] = {
+          site: siteName,
+          total: 0,
+          ...Object.fromEntries(
+            categories.map(category => [category, 0])
+          )
+        };
+      }
+
+      siteMap[siteName][category] += count;
+      siteMap[siteName].total += count;
+    }
+
+    const totalPresent = Object.values(roleCounts)
+      .reduce((sum, count) => sum + count, 0);
+
+    res.json({
+      date,
+      totalPresent,
+      roleCounts,
+      sites: Object.values(siteMap)
+    });
   } catch (err) {
     next(err);
   }
 });
 
+// --------------------------------------------------
+// EXPORT ATTENDANCE AS CSV
+// --------------------------------------------------
+
+app.get(
+  "/api/attendance/export",
+  async (req, res, next) => {
+    try {
+      const date = req.query.date || getNairobiDate();
+      const site = String(req.query.site || "").trim();
+
+      if (!validDate(date)) {
+        return res.status(400).json({
+          error: "Please select a valid attendance date."
+        });
+      }
+
+      const filter = attendanceFilters(date, site);
+
+      const result = await pool.query(
+        ATTENDANCE_SELECT +
+          filter.sql +
+          " ORDER BY check_in",
+        filter.params
+      );
+
+      const columns = [
+        "Name",
+        "Worker ID",
+        "Role",
+        "Site",
+        "Date",
+        "Check In",
+        "Check Out"
+      ];
+
+      const values = result.rows.map(record => [
+        record.name,
+        record.workerId,
+        record.role,
+        record.site,
+        record.date,
+        record.checkIn
+          ? new Date(record.checkIn).toISOString()
+          : "",
+        record.checkOut
+          ? new Date(record.checkOut).toISOString()
+          : ""
+      ]);
+
+      const csvCell = value =>
+        `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+      const csv = [columns, ...values]
+        .map(row => row.map(csvCell).join(","))
+        .join("\r\n");
+
+      res.setHeader(
+        "Content-Type",
+        "text/csv; charset=utf-8"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="attendance-${date}.csv"`
+      );
+
+      res.send("\uFEFF" + csv);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// --------------------------------------------------
+// PROTECT HTML PAGES
+// --------------------------------------------------
+
 // Keep the login page public; protect other HTML pages.
 app.use((req, res, next) => {
-  if (!["GET", "HEAD"].includes(req.method)) return next();
+  if (!["GET", "HEAD"].includes(req.method)) {
+    return next();
+  }
 
   const page = req.path;
 
@@ -525,32 +824,51 @@ app.use((req, res, next) => {
     !session ||
     Date.now() - session.createdAt > SESSION_MAX_AGE
   ) {
-    if (req.cookiesSid) sessions.delete(req.cookiesSid);
+    if (req.cookiesSid) {
+      sessions.delete(req.cookiesSid);
+    }
+
     return res.redirect("/");
   }
 
   next();
 });
 
+// Serve dashboard and other public assets.
 app.use(express.static(PUBLIC_DIR));
 
 app.get("/", (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+  res.sendFile(
+    path.join(PUBLIC_DIR, "index.html")
+  );
 });
+
+// --------------------------------------------------
+// ERROR HANDLING
+// --------------------------------------------------
 
 app.use((err, req, res, next) => {
   console.error("Request failed:", err.message);
 
-  if (res.headersSent) return next(err);
+  if (res.headersSent) {
+    return next(err);
+  }
 
   res.status(500).json({
-    error: "Server or database error. Please try again."
+    error:
+      "Server or database error. Please try again."
   });
 });
 
+// --------------------------------------------------
+// START SERVER AFTER DATABASE CONNECTION
+// --------------------------------------------------
+
 pool.query("SELECT 1")
   .then(() => {
-    console.log("Neon PostgreSQL connected successfully.");
+    console.log(
+      "Neon PostgreSQL connected successfully."
+    );
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(
@@ -559,6 +877,10 @@ pool.query("SELECT 1")
     });
   })
   .catch(err => {
-    console.error("Could not connect to Neon PostgreSQL:", err.message);
+    console.error(
+      "Could not connect to Neon PostgreSQL:",
+      err.message
+    );
+
     process.exit(1);
   });
