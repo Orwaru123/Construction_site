@@ -1,3 +1,4 @@
+
 "use strict";
 
 // Construction Site Attendance System
@@ -5,6 +6,10 @@ const $ = (id) => document.getElementById(id);
 
 const messageBox = $("message");
 const page = window.location.pathname.split("/").pop() || "index.html";
+
+// --------------------------------------------------
+// API HELPERS
+// --------------------------------------------------
 
 async function api(url, options = {}) {
   const response = await fetch(url, {
@@ -21,7 +26,7 @@ async function api(url, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.error || "Something went wrong.");
+    throw new Error(data.error || `Request failed (${response.status}).`);
   }
 
   return data;
@@ -89,7 +94,10 @@ function goTo(url) {
   window.location.href = url;
 }
 
-// Check whether the administrator is signed in.
+// --------------------------------------------------
+// ADMIN AUTHENTICATION
+// --------------------------------------------------
+
 async function requireAdmin() {
   try {
     await api("/api/me");
@@ -100,7 +108,10 @@ async function requireAdmin() {
   }
 }
 
+// --------------------------------------------------
 // ADMIN LOGIN
+// --------------------------------------------------
+
 const loginForm = $("loginForm");
 
 if (loginForm) {
@@ -137,7 +148,10 @@ if (loginForm) {
   });
 }
 
+// --------------------------------------------------
 // ADMIN LOGOUT
+// --------------------------------------------------
+
 const logoutButton = $("logoutButton");
 
 if (logoutButton) {
@@ -155,7 +169,10 @@ if (logoutButton) {
   });
 }
 
+// --------------------------------------------------
 // WORKER REGISTRATION
+// --------------------------------------------------
+
 const workerForm = $("workerForm");
 const workersList = $("workersList");
 
@@ -164,9 +181,10 @@ async function loadWorkers() {
 
   try {
     const data = await api("/api/workers");
+    const workers = data.workers || [];
 
-    workersList.innerHTML = data.workers.length
-      ? data.workers.map((worker) => `
+    workersList.innerHTML = workers.length
+      ? workers.map((worker) => `
           <tr>
             <td>${escapeHTML(worker.name)}</td>
             <td>${escapeHTML(worker.workerId)}</td>
@@ -216,7 +234,10 @@ if (workerForm) {
   });
 }
 
+// --------------------------------------------------
 // WORKER ATTENDANCE
+// --------------------------------------------------
+
 const attendanceForm = $("attendanceForm");
 
 if (attendanceForm) {
@@ -248,7 +269,10 @@ if (attendanceForm) {
   });
 }
 
+// --------------------------------------------------
 // ATTENDANCE RECORDS
+// --------------------------------------------------
+
 const attendanceList = $("attendanceList");
 const siteFilter = $("siteFilter");
 const dateFilter = $("dateFilter");
@@ -279,9 +303,10 @@ async function loadAttendance() {
 
   try {
     const data = await api(`/api/attendance?${params.toString()}`);
+    const records = data.records || [];
 
-    attendanceList.innerHTML = data.records.length
-      ? data.records.map((record) => `
+    attendanceList.innerHTML = records.length
+      ? records.map((record) => `
           <tr>
             <td>${escapeHTML(record.name)}</td>
             <td>${escapeHTML(record.workerId)}</td>
@@ -294,7 +319,7 @@ async function loadAttendance() {
       : '<tr><td colspan="6">No attendance records for this date and site.</td></tr>';
   } catch (error) {
     attendanceList.innerHTML =
-      '<tr><td colspan="6">Unable to load attendance records.</td></tr>';
+      `<tr><td colspan="6">${escapeHTML(error.message)}</td></tr>`;
 
     showMessage(error.message, true);
   }
@@ -317,7 +342,10 @@ if (siteFilter) {
   });
 }
 
-// Export records using the selected date and site.
+// --------------------------------------------------
+// EXPORT ATTENDANCE AS CSV
+// --------------------------------------------------
+
 if (exportButton) {
   exportButton.addEventListener("click", async () => {
     clearMessage();
@@ -362,12 +390,134 @@ if (exportButton) {
   });
 }
 
-// Protect and initialize each non-login page.
+// --------------------------------------------------
+// DAILY WORKFORCE SUMMARY
+// --------------------------------------------------
+
+const summaryDate = $("summaryDate");
+const totalPresent = $("totalPresent");
+const totalWorkers = $("totalWorkers");
+const totalSupervisors = $("totalSupervisors");
+const totalEngineers = $("totalEngineers");
+const totalContractors = $("totalContractors");
+const totalSecurity = $("totalSecurity");
+const totalOtherStaff = $("totalOtherStaff");
+const siteSummaryTable = $("siteSummaryTable");
+
+let summaryRequestNumber = 0;
+
+async function loadSummary() {
+  if (!summaryDate || !totalPresent) return;
+
+  const requestNumber = ++summaryRequestNumber;
+  const date = summaryDate.value || today();
+
+  clearMessage();
+
+  totalPresent.textContent = "…";
+
+  const countElements = [
+    totalWorkers,
+    totalSupervisors,
+    totalEngineers,
+    totalContractors,
+    totalSecurity,
+    totalOtherStaff
+  ];
+
+  countElements.forEach((element) => {
+    if (element) element.textContent = "…";
+  });
+
+  if (siteSummaryTable) {
+    siteSummaryTable.innerHTML =
+      '<tr><td colspan="8">Loading workforce summary...</td></tr>';
+  }
+
+  try {
+    const data = await api(
+      `/api/summary?date=${encodeURIComponent(date)}`
+    );
+
+    // Ignore an older request if the date was changed while loading.
+    if (requestNumber !== summaryRequestNumber) return;
+
+    const counts = data.roleCounts || {};
+
+    totalPresent.textContent = data.totalPresent ?? 0;
+
+    if (totalWorkers)
+      totalWorkers.textContent = counts.Workers ?? 0;
+
+    if (totalSupervisors)
+      totalSupervisors.textContent = counts.Supervisors ?? 0;
+
+    if (totalEngineers)
+      totalEngineers.textContent = counts.Engineers ?? 0;
+
+    if (totalContractors)
+      totalContractors.textContent = counts.Contractors ?? 0;
+
+    if (totalSecurity)
+      totalSecurity.textContent = counts["Security Officers"] ?? 0;
+
+    if (totalOtherStaff)
+      totalOtherStaff.textContent = counts["Other Staff"] ?? 0;
+
+    if (siteSummaryTable) {
+      const sites = data.sites || [];
+
+      siteSummaryTable.innerHTML = sites.length
+        ? sites.map((site) => `
+            <tr>
+              <td>${escapeHTML(site.site)}</td>
+              <td>${site.Workers ?? 0}</td>
+              <td>${site.Supervisors ?? 0}</td>
+              <td>${site.Engineers ?? 0}</td>
+              <td>${site.Contractors ?? 0}</td>
+              <td>${site["Security Officers"] ?? 0}</td>
+              <td>${site["Other Staff"] ?? 0}</td>
+              <td>${site.total ?? 0}</td>
+            </tr>
+          `).join("")
+        : '<tr><td colspan="8">No attendance records for this date.</td></tr>';
+    }
+  } catch (error) {
+    if (requestNumber !== summaryRequestNumber) return;
+
+    totalPresent.textContent = "—";
+
+    countElements.forEach((element) => {
+      if (element) element.textContent = "—";
+    });
+
+    if (siteSummaryTable) {
+      siteSummaryTable.innerHTML =
+        `<tr><td colspan="8">${escapeHTML(error.message)}</td></tr>`;
+    }
+
+    showMessage(`Workforce summary could not load: ${error.message}`, true);
+  }
+}
+
+if (summaryDate) {
+  if (!summaryDate.value) {
+    summaryDate.value = today();
+  }
+
+  summaryDate.addEventListener("change", loadSummary);
+}
+
+// --------------------------------------------------
+// PROTECT AND INITIALIZE PAGES
+// --------------------------------------------------
+
 if (page !== "index.html") {
   requireAdmin().then((authenticated) => {
     if (!authenticated) return;
 
     if (workersList) loadWorkers();
     if (attendanceList) loadAttendance();
+    if (summaryDate) loadSummary();
   });
 }
